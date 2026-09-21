@@ -1,0 +1,223 @@
+```
+README（仮）
+```
+
+
+````markdown
+# 📋 タスみる (Tasumiru)
+
+> **AI-powered Project Management Support System**  
+> 仕様書やRFPからタスクを自動生成し、メンバーのスキルや負荷を考慮して担当候補を提案するAIプロジェクトマネジメント支援システム
+
+**🏆 高専プロコン2026 課題部門 出場作品**
+
+---
+
+## 🚀 開発環境
+
+| Tool | Version |
+|------|---------|
+| Python | 3.11+ |
+| Node.js | 20+ |
+| Git | 2.40+ |
+
+---
+
+# 📦 セットアップ
+
+## 1. リポジトリをクローン
+
+```bash
+git clone https://github.com/Ta1-0301/Tasumiru.git
+cd Tasumiru
+````
+
+---
+
+## 2. バックエンドセットアップ
+
+```bash
+cd backend
+
+# 仮想環境作成
+python -m venv .venv
+```
+
+### 仮想環境を有効化
+
+#### Windows
+
+```powershell
+.venv\Scripts\activate
+```
+
+#### Mac / Linux
+
+```bash
+source .venv/bin/activate
+```
+
+---
+
+### 必要ライブラリをインストール
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+### 環境変数を作成
+
+#### Windows
+
+```powershell
+copy ..\.env.example ..\.env
+```
+
+#### Mac / Linux
+
+```bash
+cp ../.env.example ../.env
+```
+
+`.env` を開き、必要なAPIキーを設定してください。
+
+```env
+OPENAI_API_KEY=your_api_key
+```
+
+---
+
+# ▶️ サーバー起動
+
+プロジェクトルートで実行します。
+
+```bash
+uvicorn backend.main:app --reload
+```
+
+起動後、
+
+```
+http://localhost:8000/healthz
+```
+
+へアクセスし、
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0"
+}
+```
+
+が表示されれば成功です。
+
+---
+
+# 🧪 テスト
+
+```bash
+python -m pytest backend/tests/ -v --cov=backend.services.parser
+```
+
+目標
+
+* ✅ 全10テスト PASS
+* ✅ カバレッジ100%
+
+---
+
+# 🌳 ブランチ運用
+
+```
+main
+│
+├── develop
+│
+└── feature/TASK-XXX
+```
+
+| Branch      | Description     |
+| ----------- | --------------- |
+| `main`      | リリース版（直接Push禁止） |
+| `develop`   | 開発統合ブランチ        |
+| `feature/*` | 各機能開発           |
+
+### 開発フロー
+
+```bash
+git checkout develop
+
+git pull origin develop
+
+git checkout -b feature/TASK-XXX
+
+# 開発
+
+git add .
+
+git commit -m "TASK-XXX"
+
+git push origin feature/TASK-XXX
+```
+
+GitHubで **develop** ブランチへPull Requestを作成してください。
+
+---
+
+# 📁 ディレクトリ構成
+
+```text
+Tasumiru/
+│
+├── README.md
+├── .env.example
+│
+└── backend/
+    ├── main.py
+    ├── requirements.txt
+    │
+    ├── services/
+    │   └── parser.py
+    │
+    ├── routers/
+    │
+    ├── models/
+    │
+    └── tests/
+        └── test_parser.py
+```
+
+---
+
+# ⚠️ よくあるトラブル
+
+| 問題                           | 原因             | 解決方法                  |
+| ---------------------------- | -------------- | --------------------- |
+| `ModuleNotFoundError: fitz`  | PyMuPDF未インストール | `pip install pymupdf` |
+| `uvicorn: command not found` | 仮想環境未有効        | 仮想環境を有効化              |
+| PDFテストで文字化け                  | 日本語フォント        | ASCII文字列でテスト済み        |
+| `.env` が見つからない               | コピー忘れ          | `.env.example` をコピー   |
+
+---
+
+# 👥 Team
+
+Tasumiru Development Team
+
+* AI Task Generation
+* Skill Matching
+* Project Management Support
+* FastAPI Backend
+* React Frontend (Coming Soon)
+
+---
+
+# 📄 License
+
+This project is developed for the **National Institute of Technology Programming Contest 2026 (KOSEN Procon 2026 - Problem Division)**.
+
+```
+```
