@@ -1,0 +1,430 @@
+{
+  "format_stats": {
+    "dict": 6
+  },
+  "runs": [
+    {
+      "attempt": 1,
+      "raw_output_type": "dict",
+      "document_id": "spec_a_simple",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 2,
+      "coverage_score": 1,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 2,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "認証APIとユーザー登録機能の差別化に躍起になっていない"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 2,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "ユーザー登録機能については、招待URLで参加できるようにすることという具体的な条件が記載されていない"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 0,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "タイトルのpriorityが具体的には示されていません。",
+            "対象や条件など、タスク単体の記述だけで誰かに割り当てて着手できるだけの情報が不足しています。"
+          ]
+        }
+      ],
+      "overall_score": 1.25,
+      "issues": [
+        "招待URL方式の認証APIを実装するというタスクは、titleに「name」という単語が含まれているためカバーされているかどうかの判断が難しい。",
+        "未カバーの正解タスク: ['a1']"
+      ]
+    },
+    {
+      "attempt": 2,
+      "raw_output_type": "dict",
+      "document_id": "spec_a_simple",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 2,
+      "coverage_score": 0,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 2,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "タイトルのnameはわかりにくい。タイトルを具体的に示すこと"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 0,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "実装が完了したら、READMEに使い方を記載すること"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 0,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "ユーザー登録機能に関しては不明な点が多くあり、具体的な実装要件が不足している。"
+          ]
+        }
+      ],
+      "overall_score": 0.89,
+      "issues": [
+        "READMEに使い方を記載するというタスクは、生成タスク「priority」にも対応している可能性があるため、不正解と判断します。ただし、招待URL方式の認証APIが実装されていないため、短い理由となります。",
+        "未カバーの正解タスク: ['a2']"
+      ]
+    },
+    {
+      "attempt": 3,
+      "raw_output_type": "dict",
+      "document_id": "spec_a_simple",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 2,
+      "coverage_score": 0,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 2,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "\"ユーザー登録機能は不要で、招待URLで参加できるようにすること。\" の部分について、どうして招待URLで参加できるようになるのか、具体的なルールや制限などが明記されていません"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 1,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "ユーザー登録機能については、招待URLで参加できるようにするという条件を具体的に定めていない。"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 1,
+          "overall_score": 0.71,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "タス目の優先順位を明記するのは、一般的なガイドラインであるが、このタスク自体には、必須情報として必要なものではない"
+          ]
+        }
+      ],
+      "overall_score": 0.94,
+      "issues": [
+        "ユーザー登録機能の実装を記載するようにREADMEに追加が必要",
+        "使い方をREADMEに記載しなければならない",
+        "未カバーの正解タスク: ['a2']"
+      ]
+    },
+    {
+      "attempt": 1,
+      "raw_output_type": "dict",
+      "document_id": "spec_b_multi_pattern",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 5,
+      "coverage_score": 1,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 2,
+          "overall_score": 1.0,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 2,
+          "overall_score": 1.0,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "指定された任意の開発者がこのタスクに対して着手できる",
+            "タス目の内容は、既存の仕様書の原文に明確に記述されているものとは別のものであるため"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 0,
+          "completeness_score": 1,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "具体的なタスク名や内容は記載されていない",
+            "実装担当者がFastAPIとSQLAlchemyの知識を持っている必要性について、原文では条件付き要件として記載されているため"
+          ]
+        }
+      ],
+      "overall_score": 1.29,
+      "issues": [
+        "招待URL方式による認証機能の実装は不明な点があります。",
+        "セッショントークンの保存は条件付き要件では禁止しているため、別途検証が必要です。",
+        "未カバーの正解タスク: ['b1', 'b4']"
+      ]
+    },
+    {
+      "attempt": 2,
+      "raw_output_type": "dict",
+      "document_id": "spec_b_multi_pattern",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 5,
+      "coverage_score": 0,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 2,
+          "overall_score": 1.0,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 1,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "「実装担当者はFastAPIとSQLAlchemyの知識を有すること。」が、対象となる人はこのタスクだけなのか、またはその他のタスクも含まれるのか明確ではない。"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 2,
+          "overall_score": 1.0,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない"
+          ]
+        }
+      ],
+      "overall_score": 0.98,
+      "issues": [
+        "タスクIDが一致していないため、カバレッジの計算に失敗しています。",
+        "未カバーの正解タスク: ['b3', 'b4', 'b5']"
+      ]
+    },
+    {
+      "attempt": 3,
+      "raw_output_type": "dict",
+      "document_id": "spec_b_multi_pattern",
+      "generated_task_count": 3,
+      "ground_truth_task_count": 5,
+      "coverage_score": 1,
+      "non_duplication_score": 2,
+      "task_evaluations": [
+        {
+          "task_id": "T-001",
+          "title": "name",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 0,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "タイトルに指定されたスキルにFastAPIが含まれているが、実際の開発においてはSQLAlchemyを使用しているかどうかの判断が難しい"
+          ]
+        },
+        {
+          "task_id": "T-002",
+          "title": "skill_required",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 2,
+          "completeness_score": 1,
+          "overall_score": 0.86,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "task_nameを記述してください",
+            "実装担当者の知識が具体的に何であるか明記されていません"
+          ]
+        },
+        {
+          "task_id": "T-003",
+          "title": "priority",
+          "traceability_score": 0,
+          "granularity_score": 2,
+          "actionability_score": 0,
+          "skill_accuracy_score": 0,
+          "effort_plausibility_score": 1,
+          "specificity_score": 1,
+          "completeness_score": 0,
+          "overall_score": 0.57,
+          "issues": [
+            "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+            "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+            "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+            "タス目的に何を実装すべきかが明確に記載されていません。"
+          ]
+        }
+      ],
+      "overall_score": 1.22,
+      "issues": [
+        "カバーされていないタスク: b1、b3、b5。意味的に対応しているタスクは存在しない",
+        "未カバーの正解タスク: ['b1', 'b3', 'b5']"
+      ]
+    }
+  ]
+}

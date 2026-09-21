@@ -1,0 +1,141 @@
+[
+  {
+    "document_id": "spec_a_simple",
+    "generated_task_count": 3,
+    "ground_truth_task_count": 2,
+    "coverage_score": 0,
+    "non_duplication_score": 2,
+    "task_evaluations": [
+      {
+        "task_id": "T-001",
+        "title": "name",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 2,
+        "completeness_score": 2,
+        "overall_score": 1.0,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない"
+        ]
+      },
+      {
+        "task_id": "T-002",
+        "title": "skill_required",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 2,
+        "completeness_score": 1,
+        "overall_score": 0.86,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+          "対象は明記されていません。",
+          "成果物が明記されていません。"
+        ]
+      },
+      {
+        "task_id": "T-003",
+        "title": "priority",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 1,
+        "completeness_score": 2,
+        "overall_score": 0.86,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+          "認証APIの具体的な仕様がわかりにくい"
+        ]
+      }
+    ],
+    "overall_score": 0.97,
+    "issues": [
+      "生成タスク一覧には使い方の記載に関するタスクが存在しないため、正解タスク「a2」はカバーされていない",
+      "未カバーの正解タスク: ['a2']"
+    ]
+  },
+  {
+    "document_id": "spec_b_multi_pattern",
+    "generated_task_count": 3,
+    "ground_truth_task_count": 5,
+    "coverage_score": 0,
+    "non_duplication_score": 2,
+    "task_evaluations": [
+      {
+        "task_id": "T-001",
+        "title": "name",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 2,
+        "completeness_score": 1,
+        "overall_score": 0.86,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+          "タイトルの「name」が具体的なものではありません。",
+          "実装担当者の知識はFastAPIとSQLAlchemyだけなので、他のスキルや環境情報は不明です。"
+        ]
+      },
+      {
+        "task_id": "T-002",
+        "title": "skill_required",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 1,
+        "completeness_score": 0,
+        "overall_score": 0.57,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+          "具体的な実装詳細が不足している",
+          "このタスク単体ではプロジェクトの背景や目的、または実装のための条件などが不明なので"
+        ]
+      },
+      {
+        "task_id": "T-003",
+        "title": "priority",
+        "traceability_score": 0,
+        "granularity_score": 2,
+        "actionability_score": 0,
+        "skill_accuracy_score": 0,
+        "effort_plausibility_score": 1,
+        "specificity_score": 1,
+        "completeness_score": 0,
+        "overall_score": 0.57,
+        "issues": [
+          "source_sectionが汎用フォールバック値 '§ 自動生成' のまま（実際の出典箇所を示していない）",
+          "行動を表す動詞が見当たらない（名詞句だけになっている可能性）",
+          "skill_requiredが汎用フォールバック値 'Python FastAPI' のままで、タスク内容と対応しているか確認できない",
+          "タイトルにPriorityが付いていますが、どの程度の優先順位なのか不明",
+          "必要スキルはPython FastAPIのみで、原文中のSQLAlchemyも必要"
+        ]
+      }
+    ],
+    "overall_score": 0.89,
+    "issues": [
+      "実装が行われていません",
+      "未カバーの正解タスク: ['b1', 'b3', 'b5']"
+    ]
+  }
+]

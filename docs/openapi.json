@@ -1,0 +1,3549 @@
+﻿{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "タスみる API",
+    "description": "仕様書からタスクを自動生成し、担当候補を提案するAPI",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/tasks/generate": {
+      "post": {
+        "summary": "Generate Tasks",
+        "description": "仕様書とメンバー情報からタスクを自動生成・マッチングし、DBに永続化する",
+        "operationId": "generate_tasks_api_tasks_generate_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_generate_tasks_api_tasks_generate_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOutputSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "summary": "Get Tasks",
+        "description": "DBに永続化されているタスク一覧を取得する",
+        "operationId": "get_tasks_api_tasks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOutputSchema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}": {
+      "put": {
+        "summary": "Update Task",
+        "description": "Kanbanのドラッグ＆ドロップやインライン編集によるタスク更新",
+        "operationId": "update_task_api_tasks__task_id__put",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/export": {
+      "get": {
+        "summary": "Export Tasks",
+        "description": "JSONファイルエクスポート用のデータを返す",
+        "operationId": "export_tasks_api_tasks_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get Settings",
+        "description": "現在の設定情報を取得する (フロントエンドの初期表示用)",
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Update Settings",
+        "description": "設定画面からのLLM設定や通知設定をメモリに保持する",
+        "operationId": "update_settings_api_settings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create Team",
+        "description": "チームを作成し、作成者を管理者メンバーとして登録した上でセッションを発行する",
+        "operationId": "create_team_api_teams_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams/{team_id}/invitations": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create Invitation",
+        "description": "招待トークンを発行する（対象チームの管理者のみ実行できる）",
+        "operationId": "create_invitation_api_teams__team_id__invitations_post",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}/join": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Join Team",
+        "description": "招待トークンでチームに参加し、新しいメンバーとデバイスセッションを作成する",
+        "operationId": "join_team_api_invitations__token__join_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinTeamRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh Session",
+        "description": "有効なセッションをローテーションし、有効期限を延長する",
+        "operationId": "refresh_session_api_sessions_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRefreshResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/revoke": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke Session",
+        "description": "現在のデバイス/セッションを無効化する（ログアウト）",
+        "operationId": "revoke_session_api_sessions_revoke_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Me",
+        "operationId": "get_me_api_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams/{team_id}/members": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "List Members",
+        "description": "チームメンバー一覧を取得する（自チーム以外は404）",
+        "operationId": "list_members_api_teams__team_id__members_get",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMemberResponse"
+                  },
+                  "title": "Response List Members Api Teams  Team Id  Members Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/members/{member_id}": {
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Delete Member",
+        "description": "チームメンバーを削除する（管理者のみ・自チームのメンバーのみ）",
+        "operationId": "delete_member_api_members__member_id__delete",
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Member Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "description": "プロジェクトを作成する（チームに紐づく）",
+        "operationId": "create_project_api_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project_api_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/members": {
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Set Project Members",
+        "description": "プロジェクトのメンバー情報(Phase 6)を設定する。\n\n`backend.pipeline.members.runner.build_member_directory`（既存の取り込み\nロジック）をそのまま呼ぶだけ。スキルレベル等はここでも一切作り出さない\n——`body.members`に含まれていない情報は現れない。",
+        "operationId": "set_project_members_api_projects__project_id__members_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMembersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDirectory"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project Members",
+        "operationId": "get_project_members_api_projects__project_id__members_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDirectory"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/generate": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Generate Project",
+        "description": "Phase 3-9パイプライン全体を実行するジョブを開始する。\n\n**この関数はパイプラインを実行しない。** ジョブレコードを作成して\nバックグラウンドタスクとしてスケジュールし、即座にjob_idを返す\n（依頼の\"Avoid making the frontend wait indefinitely for one\nsynchronous HTTP request\"に対応）。",
+        "operationId": "generate_project_api_projects__project_id__generate_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Status",
+        "operationId": "get_job_status_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/error": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Error",
+        "operationId": "get_job_error_api_jobs__job_id__error_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/result": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Result",
+        "operationId": "get_job_result_api_jobs__job_id__result_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinalProjectOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/requirements": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Requirements",
+        "operationId": "get_job_requirements_api_jobs__job_id__requirements_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementDocument"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/tasks": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Tasks",
+        "operationId": "get_job_tasks_api_jobs__job_id__tasks_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDocument"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/dependencies": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Dependencies",
+        "operationId": "get_job_dependencies_api_jobs__job_id__dependencies_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependencyDocument"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/validation": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Validation",
+        "operationId": "get_job_validation_api_jobs__job_id__validation_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/assignments": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Assignments",
+        "operationId": "get_job_assignments_api_jobs__job_id__assignments_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FinalAssignment"
+                  },
+                  "title": "Response Get Job Assignments Api Jobs  Job Id  Assignments Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "operationId": "health_check_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AssignmentResult": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "recommended_member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Member Id"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "candidate_scores": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateScore"
+            },
+            "type": "array",
+            "title": "Candidate Scores"
+          },
+          "rejected_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateRejection"
+            },
+            "type": "array",
+            "title": "Rejected Candidates"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recommended",
+              "no_suitable_member"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "title": "AssignmentResult",
+        "description": "タスクアサインの推薦結果（AIの推薦。人間の最終決定とは別に保持する）"
+      },
+      "AssignmentScoreAnomaly": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "member_id",
+          "score",
+          "threshold",
+          "message"
+        ],
+        "title": "AssignmentScoreAnomaly",
+        "description": "CHECK 8 (Phase 11 Part 14): 実際に割り当てられたメンバーの\n決定的スコアが著しく低い割り当て"
+      },
+      "Availability": {
+        "properties": {
+          "available_hours_per_week": {
+            "type": "number",
+            "title": "Available Hours Per Week"
+          },
+          "working_days": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Working Days"
+          },
+          "current_assigned_hours": {
+            "type": "number",
+            "title": "Current Assigned Hours",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "available_hours_per_week"
+        ],
+        "title": "Availability",
+        "description": "稼働可能時間・稼働日・現在の割当状況"
+      },
+      "Body_generate_tasks_api_tasks_generate_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "text_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Content"
+          },
+          "members_json": {
+            "type": "string",
+            "title": "Members Json",
+            "description": "JSON文字列化されたメンバーリスト"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members_json"
+        ],
+        "title": "Body_generate_tasks_api_tasks_generate_post"
+      },
+      "CandidateRejection": {
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member_id",
+          "reasons"
+        ],
+        "title": "CandidateRejection",
+        "description": "Step 1で除外された候補者とその理由"
+      },
+      "CandidateScore": {
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "skill_match": {
+            "type": "number",
+            "title": "Skill Match"
+          },
+          "workload_score": {
+            "type": "number",
+            "title": "Workload Score"
+          },
+          "experience_score": {
+            "type": "number",
+            "title": "Experience Score"
+          },
+          "availability_score": {
+            "type": "number",
+            "title": "Availability Score"
+          },
+          "skill_similarity": {
+            "type": "number",
+            "title": "Skill Similarity",
+            "default": 0.0
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member_id",
+          "skill_match",
+          "workload_score",
+          "experience_score",
+          "availability_score",
+          "score"
+        ],
+        "title": "CandidateScore",
+        "description": "Step 2で計算された、1候補者のスコア明細（0-1の内訳 + 0-100の最終スコア）"
+      },
+      "Constraint": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "max_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Hours"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "Constraint",
+        "description": "構造化された制約条件（自由記述の文字列ではない）\n\ntypeに応じて意味のあるフィールドが変わる:\n  - scope_restriction  : value に対象範囲（例: \"frontend\"）\n  - day_unavailable    : value に曜日名（例: \"Monday\"）\n  - max_hours_per_week : max_hours に週あたりの上限時間\n  - requires_review    : value にレビュー要件の説明（例: \"senior member\"）"
+      },
+      "ConstraintViolation": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "member_id",
+          "code",
+          "message"
+        ],
+        "title": "ConstraintViolation",
+        "description": "CHECK 6: 割り当てがハード制約に違反している"
+      },
+      "Dependency": {
+        "properties": {
+          "from_task_id": {
+            "type": "string",
+            "title": "From Task Id"
+          },
+          "to_task_id": {
+            "type": "string",
+            "title": "To Task Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "required",
+              "recommended",
+              "optional"
+            ],
+            "title": "Type",
+            "default": "optional"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_task_id",
+          "to_task_id",
+          "confidence"
+        ],
+        "title": "Dependency",
+        "description": "タスク間の依存関係（1件）"
+      },
+      "DependencyDocument": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/Dependency"
+            },
+            "type": "array",
+            "title": "Dependencies"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/backend__pipeline__dependencies__schema__ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "graph": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Graph",
+            "description": "DependencyGraph.to_dict()の結果"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At",
+            "description": "ISO8601形式の生成時刻(UTC)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "dependencies"
+        ],
+        "title": "DependencyDocument",
+        "description": "dependencies.json の全体"
+      },
+      "DependencyError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Task Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DependencyError",
+        "description": "CHECK 3: 依存関係グラフの問題"
+      },
+      "DuplicateTaskGroup": {
+        "properties": {
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Task Ids"
+          },
+          "similarity": {
+            "type": "number",
+            "title": "Similarity"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "llm",
+              "hybrid"
+            ],
+            "title": "Method"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_ids",
+          "similarity",
+          "method",
+          "reason"
+        ],
+        "title": "DuplicateTaskGroup",
+        "description": "CHECK 2: 重複の疑いがあるタスクの組。削除はしない（レビュー対象として保持する）"
+      },
+      "EdgeRef": {
+        "properties": {
+          "from_task_id": {
+            "type": "string",
+            "title": "From Task Id"
+          },
+          "to_task_id": {
+            "type": "string",
+            "title": "To Task Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_task_id",
+          "to_task_id"
+        ],
+        "title": "EdgeRef",
+        "description": "ValidationIssueが指す辺（依存関係にはIDが無いため、from/toのペアで参照する）"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail"
+      },
+      "FinalAssignment": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "assigned_member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Member Id"
+          },
+          "decided_by": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "human"
+            ],
+            "title": "Decided By"
+          },
+          "overridden": {
+            "type": "boolean",
+            "title": "Overridden",
+            "default": false
+          },
+          "override_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Reason"
+          },
+          "ai_recommendation": {
+            "$ref": "#/components/schemas/AssignmentResult"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "decided_by",
+          "ai_recommendation"
+        ],
+        "title": "FinalAssignment",
+        "description": "人間による最終的な割り当て決定。\n\n`ai_recommendation`にAIの推薦をそのまま保持することで、\n「AIの推薦」と「最終的な人間の割り当て」を常に分離して追跡できる。"
+      },
+      "FinalProjectOutput": {
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectInfo"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Requirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/Dependency"
+            },
+            "type": "array",
+            "title": "Dependencies"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/FinalAssignment"
+            },
+            "type": "array",
+            "title": "Assignments"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ValidationSummary"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ProjectMetadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "requirements",
+          "tasks",
+          "dependencies",
+          "members",
+          "assignments",
+          "validation",
+          "metadata"
+        ],
+        "title": "FinalProjectOutput",
+        "description": "依頼のFINAL JSON節に対応する、最終的な構造化プロジェクト出力"
+      },
+      "GenerateRequest": {
+        "properties": {
+          "document_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Text",
+            "description": "指定した場合、生成前にプロジェクトの仕様書本文を更新する"
+          },
+          "use_assignment_llm_reasoning": {
+            "type": "boolean",
+            "title": "Use Assignment Llm Reasoning",
+            "description": "Phase 7 Step 3（LLMによる補足説明）を有効にするか（既定オフ）",
+            "default": false
+          },
+          "use_duplicate_llm_verification": {
+            "type": "boolean",
+            "title": "Use Duplicate Llm Verification",
+            "description": "Phase 8 CHECK 2の重複候補についてLLM検証を行うか（既定オフ）",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "GenerateRequest"
+      },
+      "GenerateResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "GenerateResponse"
+      },
+      "GenerationNotes": {
+        "properties": {
+          "failed_item_count": {
+            "type": "integer",
+            "title": "Failed Item Count",
+            "description": "検証に失敗し破棄された項目数",
+            "default": 0
+          },
+          "dropped_duplicate_titles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dropped Duplicate Titles",
+            "description": "重複として除外されたタスク名"
+          }
+        },
+        "type": "object",
+        "title": "GenerationNotes",
+        "description": "生成処理で捨てられた/失敗した項目を透明化するための付帯情報"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InvitationCreateRequest": {
+        "properties": {
+          "expires_in_hours": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Expires In Hours",
+            "description": "招待リンクの有効時間",
+            "default": 24
+          }
+        },
+        "type": "object",
+        "title": "InvitationCreateRequest"
+      },
+      "InvitationCreateResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "招待トークン（この応答でのみ生の値が返される）"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "title": "InvitationCreateResponse"
+      },
+      "JobStatusResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "team_id": {
+            "type": "string",
+            "title": "Team Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress"
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Step"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "project_id",
+          "team_id",
+          "status",
+          "progress",
+          "created_at"
+        ],
+        "title": "JobStatusResponse"
+      },
+      "JoinTeamRequest": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name",
+            "description": "参加者の表示名"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "JoinTeamRequest"
+      },
+      "MeResponse": {
+        "properties": {
+          "team": {
+            "$ref": "#/components/schemas/TeamResponse"
+          },
+          "member": {
+            "$ref": "#/components/schemas/TeamMemberResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team",
+          "member"
+        ],
+        "title": "MeResponse"
+      },
+      "Member": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/Skill"
+            },
+            "type": "array",
+            "title": "Skills"
+          },
+          "experience_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Years",
+            "description": "全体的な業務経験年数（個々のスキルのexperience_yearsとは別）"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/Constraint"
+            },
+            "type": "array",
+            "title": "Constraints"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "availability"
+        ],
+        "title": "Member",
+        "description": "タスクアサインの対象となる、構造化されたメンバー情報"
+      },
+      "MemberDirectory": {
+        "properties": {
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/backend__pipeline__members__schema__ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "ISO8601形式の更新時刻(UTC)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "title": "MemberDirectory",
+        "description": "members.json の全体（1チーム分のメンバー一覧）"
+      },
+      "MissingRequirement": {
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "title": "Requirement Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requirement_id",
+          "message"
+        ],
+        "title": "MissingRequirement",
+        "description": "CHECK 1: 対応するタスクが1つも無い要求"
+      },
+      "ProjectCreateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "プロジェクト名（表示用、任意）"
+          },
+          "document_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Text",
+            "description": "仕様書本文（後から/generate時に渡すことも可能）"
+          }
+        },
+        "type": "object",
+        "title": "ProjectCreateRequest"
+      },
+      "ProjectInfo": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "exported_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exported At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "title": "ProjectInfo",
+        "description": "`project`セクション。仕様書自体の内容は含まない（Requirement/Task等に\n既にすべて含まれている）。"
+      },
+      "ProjectMetadata": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "pipeline_version": {
+            "type": "string",
+            "title": "Pipeline Version"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Prompt Versions"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "models_by_phase": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Models By Phase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "pipeline_version"
+        ],
+        "title": "ProjectMetadata",
+        "description": "`metadata`セクション。依頼のREPRODUCIBILITY節の項目をすべて含む。"
+      },
+      "ProjectOutputSchema": {
+        "properties": {
+          "project": {
+            "type": "string",
+            "title": "Project",
+            "description": "プロジェクト名",
+            "default": "名称未設定プロジェクト"
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date",
+            "title": "Exported At",
+            "description": "エクスポート日"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSchema"
+            },
+            "type": "array",
+            "title": "Tasks",
+            "description": "生成されたタスク一覧"
+          },
+          "generation_notes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationNotes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "直近のtasks/generate実行についての付帯情報（一覧取得時はnull）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exported_at",
+          "tasks"
+        ],
+        "title": "ProjectOutputSchema"
+      },
+      "ProjectResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "team_id": {
+            "type": "string",
+            "title": "Team Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "has_document": {
+            "type": "boolean",
+            "title": "Has Document"
+          },
+          "has_members": {
+            "type": "boolean",
+            "title": "Has Members"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_id",
+          "has_document",
+          "has_members",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProjectResponse"
+      },
+      "RagSource": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "ページ番号。プレーンテキスト仕様書にはページの概念が無いため常にNone。"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section",
+            "description": "条項見出し等。無ければNone。"
+          },
+          "similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Similarity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "document_id",
+          "similarity"
+        ],
+        "title": "RagSource",
+        "description": "RAG検索で見つかった、類似度付きの関連出典1件。\n\n既存の`SourceReference`(唯一の直接の出典)とは別物: こちらは\n「関連しそうな候補」を複数件、類似度スコア付きで保持するためのもの。"
+      },
+      "Requirement": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^REQ-\\d{3,}$",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "system_purpose",
+              "target_user",
+              "functional",
+              "non_functional",
+              "constraint",
+              "assumption",
+              "deliverable",
+              "technical",
+              "business_rule"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ],
+            "title": "Priority",
+            "default": "unknown"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "inferred"
+            ],
+            "title": "Origin",
+            "default": "explicit"
+          },
+          "source_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "title",
+          "description",
+          "confidence"
+        ],
+        "title": "Requirement",
+        "description": "最終的な構造化要求（requirements.json の1要素）"
+      },
+      "RequirementDocument": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Requirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/backend__pipeline__requirements__schema__ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At",
+            "description": "ISO8601形式の生成時刻(UTC)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "requirements"
+        ],
+        "title": "RequirementDocument",
+        "description": "requirements.json の全体（1つの仕様書に対する抽出結果）"
+      },
+      "SessionRefreshResponse": {
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expires_at"
+        ],
+        "title": "SessionRefreshResponse"
+      },
+      "SetMembersRequest": {
+        "properties": {
+          "members": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Members",
+            "description": "Phase 6のMemberスキーマに沿った生レコードの配列。ここでは一切値を作り出さない。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "title": "SetMembersRequest"
+      },
+      "SettingsSchema": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "anthropic",
+              "ollama"
+            ],
+            "title": "Provider",
+            "description": "LLMプロバイダ"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "description": "APIキー (type=password)"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url",
+            "description": "Ollama選択時のみ使用するBase URL"
+          },
+          "slack_webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slack Webhook Url",
+            "description": "Slack Webhook URL"
+          },
+          "teams_webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teams Webhook Url",
+            "description": "Teams Webhook URL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "api_key"
+        ],
+        "title": "SettingsSchema"
+      },
+      "Skill": {
+        "properties": {
+          "skill": {
+            "type": "string",
+            "title": "Skill"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "experience_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Years"
+          }
+        },
+        "type": "object",
+        "required": [
+          "skill",
+          "level"
+        ],
+        "title": "Skill",
+        "description": "1つのスキルとその習熟度"
+      },
+      "SkillMismatch": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "skill": {
+            "type": "string",
+            "title": "Skill"
+          },
+          "required_level": {
+            "type": "integer",
+            "title": "Required Level"
+          },
+          "member_level": {
+            "type": "integer",
+            "title": "Member Level"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "member_id",
+          "skill",
+          "required_level",
+          "member_level",
+          "message"
+        ],
+        "title": "SkillMismatch",
+        "description": "CHECK 5: 必要スキルと担当者のスキルの不一致"
+      },
+      "SourceReference": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "ページ番号。プレーンテキスト仕様書にはページの概念が無いため常にNone。"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section",
+            "description": "条項見出し等。無ければNone。"
+          },
+          "paragraph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paragraph",
+            "description": "段落/チャンクの識別子（chunk_id）。"
+          },
+          "source_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Text",
+            "description": "出典の原文抜粋。仕様書本文からの実在の部分文字列。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "title": "SourceReference"
+      },
+      "Task": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^TASK-\\d{3,}$",
+            "title": "Id"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Ids"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ],
+            "title": "Priority",
+            "default": "unknown"
+          },
+          "estimated_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Hours"
+          },
+          "required_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Skills"
+          },
+          "acceptance_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Acceptance Criteria"
+          },
+          "source_reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "related_sources": {
+            "items": {
+              "$ref": "#/components/schemas/RagSource"
+            },
+            "type": "array",
+            "title": "Related Sources"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review",
+            "default": false
+          },
+          "review_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "confidence"
+        ],
+        "title": "Task",
+        "description": "最終的な構造化タスク（tasks.json の1要素）"
+      },
+      "TaskDocument": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/backend__pipeline__tasks__schema__ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At",
+            "description": "ISO8601形式の生成時刻(UTC)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "tasks"
+        ],
+        "title": "TaskDocument",
+        "description": "tasks.json の全体（1つの要求ドキュメントから分解されたタスク一覧）"
+      },
+      "TaskQualityIssue": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "code",
+          "message"
+        ],
+        "title": "TaskQualityIssue",
+        "description": "CHECK 7 (Phase 11 Part 14): タスク単体のデータ品質シグナル\n（Phase 4で検出済みのneeds_review・必要スキル未特定）"
+      },
+      "TaskSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "description": "タスクID (例: T-001)"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "タスク名"
+          },
+          "assignee": {
+            "type": "string",
+            "title": "Assignee",
+            "description": "担当候補者名"
+          },
+          "skill_required": {
+            "type": "string",
+            "title": "Skill Required",
+            "description": "必要スキル（表示用の文字列。詳細はrequired_skills参照）"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown"
+            ],
+            "title": "Priority",
+            "description": "優先度"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline",
+            "description": "締切日"
+          },
+          "source_section": {
+            "type": "string",
+            "title": "Source Section",
+            "description": "仕様書の参照箇所（表示用。詳細はsource_chunk_id/source_excerpt参照）"
+          },
+          "load_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Load Pct",
+            "description": "アサイン後の予測稼働負荷"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Kanbanステータス (TODO, DOING, DONE)",
+            "default": "TODO"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "タスクの詳細説明"
+          },
+          "estimated_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Hours",
+            "description": "見積り工数（時間）"
+          },
+          "required_skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Skills",
+            "description": "必要スキルのリスト"
+          },
+          "acceptance_criteria": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptance Criteria",
+            "description": "完了と判断できる条件のリスト"
+          },
+          "source_chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Chunk Id",
+            "description": "出典の仕様書チャンクID"
+          },
+          "source_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Excerpt",
+            "description": "出典の原文抜粋"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review",
+            "description": "人による確認が必要かどうか",
+            "default": false
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason",
+            "description": "要確認の理由"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "title",
+          "assignee",
+          "skill_required",
+          "priority",
+          "source_section",
+          "load_pct"
+        ],
+        "title": "TaskSchema"
+      },
+      "TaskUpdateRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "source_section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Section"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "title": "TaskUpdateRequest"
+      },
+      "TeamCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "description": "チーム名"
+          },
+          "admin_display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Admin Display Name",
+            "description": "作成者（管理者）の表示名"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "admin_display_name"
+        ],
+        "title": "TeamCreateRequest"
+      },
+      "TeamMemberResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "is_admin"
+        ],
+        "title": "TeamMemberResponse"
+      },
+      "TeamResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TeamResponse"
+      },
+      "TraceabilityIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TraceabilityIssue",
+        "description": "Requirement -> Task のトレーサビリティが欠落しているタスク\n（Phase 8のCHECK 1とは逆方向の検証。このフェーズ独自）"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationReport": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "missing_requirements": {
+            "items": {
+              "$ref": "#/components/schemas/MissingRequirement"
+            },
+            "type": "array",
+            "title": "Missing Requirements"
+          },
+          "duplicate_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateTaskGroup"
+            },
+            "type": "array",
+            "title": "Duplicate Tasks"
+          },
+          "dependency_errors": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyError"
+            },
+            "type": "array",
+            "title": "Dependency Errors"
+          },
+          "workload_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/WorkloadWarning"
+            },
+            "type": "array",
+            "title": "Workload Warnings"
+          },
+          "skill_mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/SkillMismatch"
+            },
+            "type": "array",
+            "title": "Skill Mismatches"
+          },
+          "constraint_violations": {
+            "items": {
+              "$ref": "#/components/schemas/ConstraintViolation"
+            },
+            "type": "array",
+            "title": "Constraint Violations"
+          },
+          "task_quality_issues": {
+            "items": {
+              "$ref": "#/components/schemas/TaskQualityIssue"
+            },
+            "type": "array",
+            "title": "Task Quality Issues"
+          },
+          "assignment_score_anomalies": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentScoreAnomaly"
+            },
+            "type": "array",
+            "title": "Assignment Score Anomalies"
+          },
+          "workload_summaries": {
+            "items": {
+              "$ref": "#/components/schemas/WorkloadSummary"
+            },
+            "type": "array",
+            "title": "Workload Summaries"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At",
+            "description": "ISO8601形式の生成時刻(UTC)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "ValidationReport",
+        "description": "依頼のRESULT節に対応する検証結果全体"
+      },
+      "ValidationSummary": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "warning",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "critical_issue_count": {
+            "type": "integer",
+            "title": "Critical Issue Count"
+          },
+          "warning_issue_count": {
+            "type": "integer",
+            "title": "Warning Issue Count"
+          },
+          "traceability_errors": {
+            "items": {
+              "$ref": "#/components/schemas/TraceabilityIssue"
+            },
+            "type": "array",
+            "title": "Traceability Errors"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ValidationReport"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "critical_issue_count",
+          "warning_issue_count",
+          "report"
+        ],
+        "title": "ValidationSummary",
+        "description": "`validation`セクション。Phase 8の`ValidationReport`をそのまま内包し、\nそれに加えてvalid/warning/errorの3段階分類を明示する\n（依頼の\"Clearly distinguish: valid / warning / error\"に対応）。"
+      },
+      "WorkloadSummary": {
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "assigned_hours": {
+            "type": "number",
+            "title": "Assigned Hours"
+          },
+          "available_hours": {
+            "type": "number",
+            "title": "Available Hours"
+          },
+          "remaining_capacity": {
+            "type": "number",
+            "title": "Remaining Capacity"
+          },
+          "workload_percentage": {
+            "type": "number",
+            "title": "Workload Percentage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member_id",
+          "assigned_hours",
+          "available_hours",
+          "remaining_capacity",
+          "workload_percentage"
+        ],
+        "title": "WorkloadSummary",
+        "description": "CHECK 4: メンバーごとの稼働状況（問題が無い場合も含めて全員分）"
+      },
+      "WorkloadWarning": {
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "title": "Member Id"
+          },
+          "assigned_hours": {
+            "type": "number",
+            "title": "Assigned Hours"
+          },
+          "available_hours": {
+            "type": "number",
+            "title": "Available Hours"
+          },
+          "remaining_capacity": {
+            "type": "number",
+            "title": "Remaining Capacity"
+          },
+          "workload_percentage": {
+            "type": "number",
+            "title": "Workload Percentage"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "member_id",
+          "assigned_hours",
+          "available_hours",
+          "remaining_capacity",
+          "workload_percentage",
+          "code",
+          "message"
+        ],
+        "title": "WorkloadWarning",
+        "description": "CHECK 4: 過負荷など、稼働状況に関する警告"
+      },
+      "backend__pipeline__dependencies__schema__ValidationIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeRef"
+            },
+            "type": "array",
+            "title": "Edges"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "description": "Dependency Validationステージが検出した問題点"
+      },
+      "backend__pipeline__members__schema__ValidationIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "description": "Member Validationステージが検出した問題点"
+      },
+      "backend__pipeline__requirements__schema__ValidationIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "description": "Requirement Validationステージが検出した問題点"
+      },
+      "backend__pipeline__tasks__schema__ValidationIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Task Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ValidationIssue",
+        "description": "Task Validationステージが検出した問題点"
+      }
+    }
+  }
+}

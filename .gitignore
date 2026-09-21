@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# ローカル設定・秘密情報（.env.example をコピーして使う）
+.env
+.env.local
+
+# ローカルDB
+*.db
+
+# パイプライン中間出力（実行のたびに生成される、ソースではない）
+backend/pipeline/*/output/
+backend/jobs/output/
+backend/services/rag/cache/
+backend/services/output/
+
+# フロントエンド（今回はバックエンドのみ公開するため対象外）
+frontend/
+
+# エディタ/ツール固有
+.claude/
+.vscode/

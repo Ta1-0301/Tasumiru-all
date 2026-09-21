@@ -1,0 +1,35 @@
+[project]
+name = "tasumirudev"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.18.5",
+    "anthropic>=1.7.0",
+    "fastapi>=0.139.0",
+    "greenlet>=3.5.3",
+    "httpx>=0.28.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "pymupdf>=1.28.0",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.32",
+    "scikit-learn>=1.9.0",
+    "sentence-transformers>=5.6.0",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.50.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
