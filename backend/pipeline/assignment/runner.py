@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Set
 
+from backend.pipeline.assignment.audit import determine_unassigned_reason, find_fallback_candidate
 from backend.pipeline.assignment.filters import filter_candidates
 from backend.pipeline.assignment.reasoning import generate_llm_reasoning
 from backend.pipeline.assignment.schema import AssignmentResult, AssignmentTask, ScoringWeights
@@ -66,11 +67,16 @@ async def run_assignment(
     weights: Optional[ScoringWeights] = None,
     client: Optional[BaseLLMClient] = None,
     completed_task_ids: Optional[Set[str]] = None,
+    member_load_errors: bool = False,
 ) -> AssignmentResult:
     """1件のタスクに対するメンバーアサインを推薦する。
 
     `client`を渡さない場合、Step 3（LLMによる補足説明）は完全にスキップされ、
     結果は決定的スコアリングのみに基づく（LLM呼び出しが任意であることの実装）。
+
+    `member_load_errors`はAssignment Audit用の任意引数（既定False）。
+    メンバーディレクトリの読み込み時に無効なレコードが存在したかどうかを
+    伝えるだけで、フィルタリング・スコアリングの判定には一切影響しない。
     """
     members = list(members)
     survivors, rejections = filter_candidates(task, members)
@@ -78,11 +84,36 @@ async def run_assignment(
     dependency_warnings = _build_unmet_dependency_warnings(task, completed_task_ids)
 
     if not survivors:
+        # STEP7: Fallback Assignment。availability/workload/explicit constraint
+        # で拒否された候補は対象にせず、スキル不一致のみで拒否された候補の中に
+        # 既存のTF-IDF skill_similarityが閾値を超える者がいる場合に限り、
+        # 警告付きで候補として提示する（ハード制約を回避するものではない）。
+        fallback = find_fallback_candidate(task, members, rejections, weights)
+        if fallback is not None:
+            fallback_member = next(m for m in members if m.id == fallback.member_id)
+            return AssignmentResult(
+                task_id=task.task_id,
+                recommended_member_id=fallback.member_id,
+                score=fallback.score,
+                candidate_scores=[fallback],
+                rejected_candidates=rejections,
+                reasons=[
+                    f"{fallback_member.name}は必要スキルの完全一致は無いものの、"
+                    f"関連スキルの類似度({fallback.skill_similarity})からFallback候補として提示します"
+                ],
+                warnings=["REQUIRED_SKILL_NOT_EXACT_MATCH"] + dependency_warnings,
+                status="recommended",
+            )
+
+        unassigned_reason = determine_unassigned_reason(
+            task, members, rejections, member_load_errors=member_load_errors,
+        )
         return AssignmentResult(
             task_id=task.task_id,
             status="no_suitable_member",
             rejected_candidates=rejections,
             warnings=["ハード制約を満たす候補者がいませんでした"] + dependency_warnings,
+            unassigned_reason=unassigned_reason,
         )
 
     candidate_scores = score_candidates(task, survivors, weights)

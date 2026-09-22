@@ -39,6 +39,7 @@ from backend.jobs.errors import classify_exception
 from backend.jobs.timing import pipeline_stage, timed_client, timed_embedding_client
 from backend.models.job import JobModel
 from backend.models.project import ProjectModel
+from backend.pipeline.assignment.audit import summarize_assignment_audit
 from backend.pipeline.assignment.override import accept_recommendation
 from backend.pipeline.assignment.runner import run_assignment
 from backend.pipeline.assignment.schema import FinalAssignment
@@ -321,6 +322,11 @@ class JobManager:
                             message=STAGE_START_MESSAGES["assignments"])
         assignment_client = timed_client(base_client, "assignments") if use_llm_reasoning else None
 
+        # Assignment Audit用: メンバーディレクトリの読み込み時に無効なレコードが
+        # あったかどうか（LOAD_ERROR）を、未割当理由の分類に使う。判定ロジック
+        # 自体（filters.py/scoring.py/workload_balancing.py）には影響しない。
+        member_load_errors = any(issue.code == "LOAD_ERROR" for issue in member_dir.issues)
+
         with pipeline_stage("assignments"):
             # member_dir.membersはここで1回だけ読み込まれたリストを、タスクの数だけ
             # 再利用する（B: メンバー情報を毎回DBから読み直したりはしない）。
@@ -329,7 +335,10 @@ class JobManager:
             # 既定値1（逐次実行のまま）・同じOLLAMA_MAX_CONCURRENCYで制御する。
             async def _assign_one(task):
                 assignment_task = task_to_assignment_task(task, dep_doc.dependencies)
-                result = await run_assignment(assignment_task, member_dir.members, client=assignment_client)
+                result = await run_assignment(
+                    assignment_task, member_dir.members, client=assignment_client,
+                    member_load_errors=member_load_errors,
+                )
                 return accept_recommendation(result)
 
             max_concurrency = get_max_concurrency()
@@ -339,6 +348,13 @@ class JobManager:
             )
 
         path = self._save_assignments(job_id, final_assignments)
+        audit_summary = summarize_assignment_audit(final_assignments)
+        logger.info(
+            "[ASSIGNMENT] job=%s total=%d assigned=%d unassigned=%d success_rate=%.2f%% reasons=%s",
+            job_id, audit_summary.total_tasks, audit_summary.assigned_tasks,
+            audit_summary.unassigned_tasks, audit_summary.success_rate,
+            audit_summary.unassigned_by_reason,
+        )
         await self._update(job_id, progress=STAGE_BOUNDS["assignments"][1],
                             message=STAGE_DONE_MESSAGES["assignments"], assignments_path=str(path))
         return final_assignments

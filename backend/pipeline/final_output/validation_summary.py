@@ -32,6 +32,8 @@ def build_validation_summary(report: ValidationReport, tasks: List[Task]) -> Val
       - constraint_violations（ハード制約違反）
       - dependency_errorsのうちCRITICAL_DEPENDENCY_CODES
       - タスク -> 要求のトレーサビリティ欠落（このフェーズ独自の検証）
+      - unassigned_tasks（Assignment未割当調査で追加: CHECK 9。担当者が
+        1人もいないタスクは計画として実行不可能なため、warningではなくcritical扱い）
 
     warningに分類する項目:
       - duplicate_tasks（レビュー対象。削除・強制はしない）
@@ -53,6 +55,7 @@ def build_validation_summary(report: ValidationReport, tasks: List[Task]) -> Val
         + len(report.constraint_violations)
         + sum(1 for e in report.dependency_errors if e.code in CRITICAL_DEPENDENCY_CODES)
         + len(traceability_errors)
+        + len(report.unassigned_tasks)
     )
     warning = (
         len(report.duplicate_tasks)

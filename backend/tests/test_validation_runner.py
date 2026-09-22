@@ -93,6 +93,33 @@ def test_broken_plan_surfaces_every_category_of_issue_simultaneously():
     assert any(c.code == "HARD_CONSTRAINT_VIOLATED" for c in report.constraint_violations)
 
 
+def test_unassigned_task_is_surfaced_via_final_assignments():
+    """CHECK 9（Assignment未割当調査で追加）: final_assignmentsが渡されれば、
+    未割当タスクがunassigned_tasksとして報告される。渡されなければ
+    従来通りスキップされる（後方互換）。"""
+    requirements = [_req("REQ-001")]
+    tasks = [_task("TASK-001", requirement_ids=["REQ-001"], required_skills=["Python"])]
+    members = [_member("M-001", skills=[])]  # Pythonを持たない
+    final_assignments = [
+        FinalAssignment(
+            task_id="TASK-001", assigned_member_id=None, decided_by="ai",
+            ai_recommendation=AssignmentResult(
+                task_id="TASK-001", status="no_suitable_member", unassigned_reason="NO_REQUIRED_SKILL",
+            ),
+        ),
+    ]
+
+    report_without = validate_project_plan(requirements, tasks, [], members, {})
+    assert report_without.unassigned_tasks == []  # final_assignments未指定なら従来通りスキップ
+
+    report_with = validate_project_plan(
+        requirements, tasks, [], members, {}, final_assignments=final_assignments,
+    )
+    assert report_with.valid is False
+    assert len(report_with.unassigned_tasks) == 1
+    assert report_with.unassigned_tasks[0].reason == "NO_REQUIRED_SKILL"
+
+
 def test_assignment_to_nonexistent_member_is_surfaced_as_constraint_violation():
     requirements = [_req("REQ-001")]
     tasks = [_task("TASK-001", requirement_ids=["REQ-001"])]

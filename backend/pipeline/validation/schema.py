@@ -101,6 +101,22 @@ class AssignmentScoreAnomaly(BaseModel):
     message: str
 
 
+class UnassignedTaskIssue(BaseModel):
+    """CHECK 9: 担当者を割り当てられなかったタスク。
+
+    `reason`は`backend.pipeline.assignment.audit.UnassignedReason`の
+    いずれか（NO_CANDIDATE/HARD_CONSTRAINT/NO_REQUIRED_SKILL/
+    NO_AVAILABILITY/WORKLOAD_TOO_HIGH/INVALID_MEMBER_DATA/UNKNOWN）。
+    候補ごとの詳細は`{job_id}.assignments.json`の
+    `ai_recommendation.rejected_candidates`に既に保持されているため、
+    ここでは「一覧性」のためのサマリーとして最小限の情報だけを持つ。
+    """
+
+    task_id: str
+    reason: str
+    message: str
+
+
 class ValidationReport(BaseModel):
     """依頼のRESULT節に対応する検証結果全体"""
 
@@ -116,6 +132,9 @@ class ValidationReport(BaseModel):
     # （Part 20: 後方互換な追加のみ行う）。
     task_quality_issues: List[TaskQualityIssue] = Field(default_factory=list)
     assignment_score_anomalies: List[AssignmentScoreAnomaly] = Field(default_factory=list)
+
+    # CHECK 9（Assignment未割当問題の調査で追加）。既存フィールドは変更しない。
+    unassigned_tasks: List[UnassignedTaskIssue] = Field(default_factory=list)
 
     # 依頼のRESULT節には無いが、フロントエンドが全メンバーの稼働状況を
     # 表示するために有用な補足情報（問題の有無にかかわらず全員分を含む）

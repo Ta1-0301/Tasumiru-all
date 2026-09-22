@@ -117,6 +117,9 @@ class AssignmentResult(BaseModel):
     reasons: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     status: Literal["recommended", "no_suitable_member"]
+    # Assignment Audit（既定はOFF、Noneのまま）: 未割当タスクの代表理由。
+    # "recommended"の場合は常にNone（既存の挙動を一切変えない）。
+    unassigned_reason: Optional[str] = None
 
 
 class FinalAssignment(BaseModel):

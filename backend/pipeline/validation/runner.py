@@ -32,6 +32,7 @@ from backend.pipeline.validation.schema import ValidationReport
 from backend.pipeline.validation.score_anomaly import check_assignment_score_anomalies
 from backend.pipeline.validation.skill_mismatch import check_skill_mismatches
 from backend.pipeline.validation.task_quality import check_task_quality
+from backend.pipeline.validation.unassigned import check_unassigned_tasks
 from backend.pipeline.validation.workload import check_workload
 from backend.services.llm import BaseLLMClient
 
@@ -59,12 +60,12 @@ def validate_project_plan(
     duplicate_similarity_threshold: float = 0.7,
     final_assignments: Optional[List[FinalAssignment]] = None,
 ) -> ValidationReport:
-    """CHECK 1-8を実行し、ValidationReportを構築する（決定的、LLM不使用）。
+    """CHECK 1-9を実行し、ValidationReportを構築する（決定的、LLM不使用）。
 
     `final_assignments`はPhase 11 Part 14で追加されたCHECK 8
-    （割り当てスコアの異常検出）にのみ使う任意の引数。渡されなければ
-    CHECK 8はスキップされる（スコア情報を持たない呼び出し元との後方互換性、
-    Part 20）。
+    （割り当てスコアの異常検出）と、Assignment未割当調査で追加されたCHECK 9
+    （未割当タスクの検出）にのみ使う任意の引数。渡されなければCHECK 8/9は
+    スキップされる（スコア情報を持たない呼び出し元との後方互換性、Part 20）。
     """
     valid_task_ids = [t.id for t in tasks]
 
@@ -78,6 +79,9 @@ def validate_project_plan(
     assignment_score_anomalies = (
         check_assignment_score_anomalies(final_assignments) if final_assignments is not None else []
     )
+    unassigned_tasks = (
+        check_unassigned_tasks(final_assignments) if final_assignments is not None else []
+    )
 
     valid = not any([
         missing_requirements,
@@ -87,6 +91,7 @@ def validate_project_plan(
         skill_mismatches,
         constraint_violations,
         assignment_score_anomalies,
+        unassigned_tasks,
         # task_quality_issuesは意図的にvalid判定から除外する: NEEDS_REVIEWは
         # Phase 4時点で既にレビュー対象として明示されている既知の問題であり、
         # ここで二重にプロジェクト全体を"invalid"扱いにすると、Phase 4段階の
@@ -106,6 +111,7 @@ def validate_project_plan(
         constraint_violations=constraint_violations,
         task_quality_issues=task_quality_issues,
         assignment_score_anomalies=assignment_score_anomalies,
+        unassigned_tasks=unassigned_tasks,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
 

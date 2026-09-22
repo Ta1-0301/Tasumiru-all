@@ -12,6 +12,7 @@ from backend.pipeline.validation.schema import (
     DuplicateTaskGroup,
     MissingRequirement,
     SkillMismatch,
+    UnassignedTaskIssue,
     ValidationReport,
     WorkloadWarning,
 )
@@ -114,6 +115,18 @@ def test_critical_and_warning_issues_together_still_report_error():
     assert summary.status == "error"
     assert summary.critical_issue_count == 1
     assert summary.warning_issue_count == 1
+
+
+def test_unassigned_task_is_critical():
+    """CHECK 9（Assignment未割当調査で追加）: 担当者不在は計画上重大な問題として
+    critical扱いになる（warningではない）"""
+    report = ValidationReport(
+        valid=False,
+        unassigned_tasks=[UnassignedTaskIssue(task_id="TASK-001", reason="NO_REQUIRED_SKILL", message="m")],
+    )
+    summary = build_validation_summary(report, [_task("TASK-001")])
+    assert summary.status == "error"
+    assert summary.critical_issue_count == 1
 
 
 def test_underlying_report_is_never_dropped_from_the_summary():
