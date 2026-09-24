@@ -443,3 +443,52 @@ async def test_rag_enabled_populates_related_sources_without_breaking_pipeline(
     for source in tasks[0]["related_sources"]:
         assert source["page"] is None  # 存在しないページ番号を生成しない
         assert 0.0 <= source["similarity"] <= 1.0
+
+
+# --- STEP 2: Task生成時のチームスキル語彙 ---
+
+async def test_job_passes_team_skill_vocabulary_to_task_generation_only(client, db_engine, tmp_path, monkeypatch):
+    """ジョブ開始時に読んだメンバーのスキル名が、Task分解プロンプトにだけ参考語彙として渡る。
+    LLM呼び出し回数は語彙の有無で変わらない（1 Requirement = 1回のまま）。"""
+    llm = FakeLLMClient()
+    _configure_job_manager_for_test(db_engine, tmp_path, monkeypatch, llm)
+    await _create_team(client)
+    project_id = await _create_project_with_members(client)
+
+    gen_resp = await client.post(f"/api/projects/{project_id}/generate", json={})
+    final_status, _ = await _poll_until_terminal(client, gen_resp.json()["job_id"])
+    assert final_status["status"] == "completed"
+
+    task_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" in p]
+    other_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" not in p]
+    assert len(task_prompts) == 1  # 要件1件 → Task分解のLLM呼び出し1回
+    assert "## 表記対応表" in task_prompts[0] and "\nPython\n" in task_prompts[0]
+    assert all("表記対応表" not in p for p in other_prompts)
+    # requirements 1 + tasks 1（タスクが1件なので依存関係のLLM呼び出しは既存仕様どおり省略される）
+    assert len(llm.calls) == 2
+
+
+async def test_job_runs_task_generation_without_vocabulary_when_members_file_is_unreadable(
+    client, db_engine, tmp_path, monkeypatch,
+):
+    """語彙の読み取りに失敗しても空の語彙で成功扱いにはせず、Task生成は従来通り(語彙なし)で動き、
+    members.jsonの読み込み失敗自体は既存のMembersステージがジョブの失敗として報告する。"""
+    import backend.jobs.manager as manager_module
+
+    llm = FakeLLMClient()
+    _configure_job_manager_for_test(db_engine, tmp_path, monkeypatch, llm)
+    await _create_team(client)
+    project_id = await _create_project_with_members(client)
+
+    def broken_loader(path):
+        raise OSError("simulated unreadable members.json")
+
+    monkeypatch.setattr(manager_module, "load_member_directory", broken_loader)
+
+    gen_resp = await client.post(f"/api/projects/{project_id}/generate", json={})
+    final_status, _ = await _poll_until_terminal(client, gen_resp.json()["job_id"])
+
+    task_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" in p]
+    assert len(task_prompts) == 1
+    assert "表記対応表" not in task_prompts[0]
+    assert final_status["status"] == "failed"

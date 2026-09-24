@@ -53,6 +53,7 @@ from backend.pipeline.requirements.runner import OUTPUT_DIR as REQUIREMENTS_OUTP
 from backend.pipeline.requirements.runner import run_requirements_pipeline, save_requirements_document
 from backend.pipeline.tasks.runner import OUTPUT_DIR as TASKS_OUTPUT_DIR
 from backend.pipeline.tasks.runner import run_task_decomposition_pipeline, save_tasks_document
+from backend.pipeline.tasks.skill_vocabulary import build_team_skill_vocabulary
 from backend.pipeline.validation.runner import OUTPUT_DIR as VALIDATION_OUTPUT_DIR
 from backend.pipeline.validation.runner import (
     save_validation_report,
@@ -203,9 +204,16 @@ class JobManager:
 
         await self._update(job_id, status="running", started_at=datetime.now(timezone.utc))
 
+        # Task生成の参考語彙（チームのスキル名一覧）。Membersステージ自体の位置・
+        # 処理は変えず、Assignmentで使うのと同じmembers.jsonを読み取り専用で
+        # ジョブ開始時に1回だけ読む（LLM不使用）。
+        team_skill_vocabulary = self._load_team_skill_vocabulary(job_id, project)
+
         try:
             req_doc, spec_index = await self._run_requirements(job_id, project, base_client)
-            task_doc = await self._run_tasks(job_id, req_doc, base_client, spec_index)
+            task_doc = await self._run_tasks(
+                job_id, req_doc, base_client, spec_index, team_skill_vocabulary=team_skill_vocabulary,
+            )
             dep_doc = await self._run_dependencies(job_id, task_doc, base_client)
             member_dir = await self._run_members(job_id, project)
             final_assignments = await self._run_assignments(
@@ -232,6 +240,30 @@ class JobManager:
             await self._fail(job_id, "PROJECT_NOT_FOUND", "プロジェクトが見つかりません。")
             return None
         return project
+
+    def _load_team_skill_vocabulary(self, job_id: str, project: ProjectModel) -> Optional[List[str]]:
+        """Task生成用のチームスキル語彙を作る。
+
+        読み込みに失敗した場合は、空の語彙を作って成功扱いにはせず、None
+        （＝従来と完全に同じTask生成）を返す。members.jsonの読み込み失敗そのものは、
+        これまで通り後段のMembersステージ(`_run_members`)が例外としてジョブを
+        失敗させる（既存のエラーハンドリングをここで変えない）。
+        ログには件数のみを出し、スキル名・メンバー情報は出さない。
+        """
+        try:
+            member_dir = load_member_directory(Path(project.members_path))
+        except Exception as e:  # noqa: BLE001 — 参考情報の取得失敗でジョブを止めない（判断はMembersステージに委ねる）
+            logger.warning(
+                "[ASSIGNMENT] job=%s team_skill_vocabulary unavailable (%s); task generation runs without it",
+                job_id, type(e).__name__,
+            )
+            return None
+        vocabulary = build_team_skill_vocabulary(member_dir.members)
+        logger.info(
+            "[ASSIGNMENT] job=%s members=%d team_skill_vocabulary_count=%d",
+            job_id, len(member_dir.members), len(vocabulary),
+        )
+        return vocabulary or None
 
     # --- 各ステージ（既存のPhase 3-9関数を呼ぶだけ） ---
 
@@ -272,7 +304,10 @@ class JobManager:
                             message=STAGE_DONE_MESSAGES["requirements"], requirements_path=str(path))
         return req_doc, spec_index
 
-    async def _run_tasks(self, job_id, req_doc, base_client, spec_index: Optional[SpecIndex] = None):
+    async def _run_tasks(
+        self, job_id, req_doc, base_client, spec_index: Optional[SpecIndex] = None,
+        team_skill_vocabulary: Optional[List[str]] = None,
+    ):
         await self._update(job_id, current_step="tasks", progress=STAGE_BOUNDS["tasks"][0],
                             message=STAGE_START_MESSAGES["tasks"])
         embedding_client = timed_embedding_client(resolve_embedding_client(), "tasks") if spec_index else None
@@ -280,6 +315,7 @@ class JobManager:
             client = timed_client(base_client, "tasks")
             task_doc = await run_task_decomposition_pipeline(
                 req_doc, client, spec_index=spec_index, embedding_client=embedding_client,
+                team_skill_vocabulary=team_skill_vocabulary,
             )
         if embedding_client is not None:
             logger.info(

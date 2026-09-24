@@ -16,7 +16,7 @@ Phase 3で生成された1件の`Requirement`を入力として受け取り、�
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from backend.pipeline.requirements.schema import Requirement
 from backend.pipeline.tasks.schema import TaskCandidate
@@ -72,6 +72,57 @@ _DECOMPOSITION_PROMPT = """\
 ]}}
 """
 
+# チームスキル語彙（team_skill_vocabulary）を渡された場合だけプロンプトに追加する節。
+# 語彙は「required_skillsの表記をそろえるための対応表」であり、スキルの候補一覧ではない。
+# gemma3:4b等の小さなモデルは「一覧」や「例の答え」をそのまま出力に写しやすい
+# （実測: v2でテスト報告書→Figma、v3で例に書いた「技術文書作成」「要件定義」がそのまま出力、
+#   チーム全体の語彙から無関係なscikit-learnが混入）ため、
+#   1. required_skillsの意味（Taskを実行するのに必要なもの。担当者の都合ではない）
+#   2. 作業内容から先に判断する順序
+#   3. スキル名がタスク文に書かれている例だけを示す（例の外にある「答え」を見せない）
+#   4. 作業の目的がセキュリティの場合だけ、セキュリティの知識を落とさない
+#   5. 表記対応表はチーム全体のもので、大半はこのタスクと無関係であること
+# を示し、表記対応表は「同じスキルの表記」を確認するためだけに使わせる。
+_TEAM_SKILL_VOCABULARY_CONTEXT = """
+## required_skillsの決め方
+required_skillsは「そのタスクを実行するために必要な技術・知識・能力」です。
+担当者候補・チームが持っているスキル・担当者を見つけるためのスキルではありません。
+仕様書に名前が出てくるだけの技術や、プロジェクト全体で使う技術も、そのタスクの作業に使わなければ含めません。
+
+各タスクについて、次の順番で決めてください。
+1. そのタスクで具体的に何をするかを確認する
+2. その作業を行うために必要なスキルを、作業内容だけから判断する
+3. 判断したスキルと同じスキルが、下の「表記対応表」にある場合だけ、その表記に書き換える
+4. 表記対応表に同じスキルが無ければ、判断したスキル名をそのまま使う（別のスキルに置き換えない）
+5. 作業に使わないスキルは追加しない（表記対応表に載っているという理由で追加しない）
+
+判断のしかた:
+- 作業内容に技術やツールが書かれている場合は、その技術・ツールと、それを使うのに直接必要な言語などを書く
+  （例:「PostgreSQLのテーブルを設計する」→ ["PostgreSQL"]、「FastAPIで認証APIを実装する」→ ["FastAPI", "Python"]、
+    「Reactでログイン画面を実装する」→ ["React", "TypeScript", "HTML/CSS"]、「管理画面のUIをFigmaで設計する」→ ["Figma"]）
+- 文書作成・計画・報告・調整・レビュー・テストのように、技術やツールを使わない作業にも必要なスキルはある。
+  作業内容に書かれている作業の種類や対象分野を、そのままスキル名として書く
+  （作業に使わない技術・ツール名は付けない。必要な知識・能力が作業内容から分かる場合は "unknown" にしない）
+- 作業の目的がセキュリティにある場合（暗号化・ハッシュ化・トークンやパスワードの保護・脆弱性対策・認証や認可の設計・
+  セキュリティのレビューなど）は、実装に使う技術があればそれに加えて、セキュリティの知識を含める（省略しない）。
+  目的がセキュリティでない作業には付けない
+
+## 表記対応表（チーム全体のメンバーが登録しているスキル名）
+チーム全体のスキルなので、ほとんどはこのタスクとは無関係です。
+手順3で「同じスキルの表記」を確認するためだけに使うこと。スキルを選ぶための一覧ではない。
+{vocabulary}
+"""
+
+
+def format_team_skill_vocabulary_context(team_skill_vocabulary: Optional[Sequence[str]]) -> str:
+    """チームスキル語彙のプロンプト節を組み立てる。語彙が無ければ空文字列
+    （＝プロンプトは従来と完全に同一）を返す。
+    """
+    names = [s.strip() for s in (team_skill_vocabulary or []) if s and s.strip()]
+    if not names:
+        return ""
+    return _TEAM_SKILL_VOCABULARY_CONTEXT.format(vocabulary=", ".join(names))
+
 
 async def decompose_requirement(
     requirement: Requirement,
@@ -80,6 +131,7 @@ async def decompose_requirement(
     spec_index: Optional[SpecIndex] = None,
     embedding_client: Optional[BaseEmbeddingClient] = None,
     top_k: int = 3,
+    team_skill_vocabulary: Optional[Sequence[str]] = None,
 ) -> Tuple[List[TaskCandidate], Optional[str]]:
     """1件のRequirementを実行可能な開発タスクに分解する。
 
@@ -94,6 +146,11 @@ async def decompose_requirement(
     (1) 追加の参考コンテキストとしてプロンプトに注入し、(2) 各TaskCandidateの
     related_sourcesに類似度付きで記録する。注入する参考コンテキストは常に実在の
     chunkテキストの抜粋であり、LLMにページ番号・節番号を生成させることはない。
+
+    `team_skill_vocabulary`は任意引数（既定はNone）。チームメンバーが実際に
+    登録しているスキル名の一覧で、required_skillsを書く際の「参考語彙」として
+    プロンプトに追加するだけ（RAGとは独立）。None/空のときはプロンプト・挙動とも
+    従来と完全に同一。LLMの呼び出し回数は変わらない（1 Requirement = 1回のまま）。
     """
     related_sources: List[RagSource] = []
     extra_context = ""
@@ -116,7 +173,7 @@ async def decompose_requirement(
         requirement_type=requirement.type,
         requirement_title=requirement.title,
         requirement_description=requirement.description,
-        extra_context=extra_context,
+        extra_context=extra_context + format_team_skill_vocabulary_context(team_skill_vocabulary),
     )
     result, error = await call_llm_json(client, prompt)
 

@@ -27,11 +27,12 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from backend.pipeline.requirements.schema import RequirementDocument
 from backend.pipeline.tasks.decomposer import decompose_requirement
 from backend.pipeline.tasks.schema import Task, TaskCandidate, TaskDocument, ValidationIssue
+from backend.pipeline.tasks.skill_evaluation import check_task_skill_consistency
 from backend.pipeline.tasks.validator import apply_review_flags, validate_tasks
 from backend.services.concurrency import gather_with_concurrency, get_max_concurrency
 from backend.services.llm import BaseLLMClient
@@ -68,6 +69,7 @@ async def run_task_decomposition_pipeline(
     *,
     spec_index: Optional[SpecIndex] = None,
     embedding_client: Optional[BaseEmbeddingClient] = None,
+    team_skill_vocabulary: Optional[Sequence[str]] = None,
 ) -> TaskDocument:
     """Phase 3のRequirementDocumentから実行可能な開発タスクを分解・検証する。
 
@@ -79,6 +81,10 @@ async def run_task_decomposition_pipeline(
     `spec_index`/`embedding_client`は実験的RAG機能用の任意引数（既定はNone、
     ENABLE_RAG=false時の既定動作と完全に同一）。渡された場合のみ、各Requirementの
     分解時に仕様書chunkの類似度検索を行い、related_sourcesを追加で付与する。
+
+    `team_skill_vocabulary`は任意引数（既定はNone）。チームメンバーのスキル名一覧を
+    各Requirementの分解プロンプトに「参考語彙」として渡すだけで、RAGとは独立。
+    LLMの呼び出し回数（1 Requirement = 1回）は変わらない。
     """
     candidates: List[TaskCandidate] = []
     decomposition_errors: List[str] = []
@@ -90,18 +96,16 @@ async def run_task_decomposition_pipeline(
     # 従来と全く同じ2引数の形で呼ぶ（既存コード/既存テストがdecompose_requirementを
     # 独自のフェイク実装に差し替えているケースとの後方互換性のため、
     # spec_index/embedding_clientキーワード引数自体を渡さない）。
+    # team_skill_vocabularyも同じ理由で、指定された場合だけキーワード引数として渡す。
+    extra_kwargs: Dict[str, Any] = {}
     if spec_index is not None:
-        factories = [
-            (lambda r=requirement: decompose_requirement(
-                r, client, spec_index=spec_index, embedding_client=embedding_client,
-            ))
-            for requirement in requirement_document.requirements
-        ]
-    else:
-        factories = [
-            (lambda r=requirement: decompose_requirement(r, client))
-            for requirement in requirement_document.requirements
-        ]
+        extra_kwargs.update(spec_index=spec_index, embedding_client=embedding_client)
+    if team_skill_vocabulary:
+        extra_kwargs["team_skill_vocabulary"] = list(team_skill_vocabulary)
+    factories = [
+        (lambda r=requirement: decompose_requirement(r, client, **extra_kwargs))
+        for requirement in requirement_document.requirements
+    ]
 
     max_concurrency = get_max_concurrency()
     results = await gather_with_concurrency(factories, max_concurrency)
@@ -119,6 +123,9 @@ async def run_task_decomposition_pipeline(
         source_document_text=original_document_text,
     )
     issues += [ValidationIssue(code="DECOMPOSITION_ERROR", message=e) for e in decomposition_errors]
+    # Task内容とrequired_skillsの明らかな不整合（LLM不使用のキーワード検査）。
+    # required_skillsは書き換えず、下のapply_review_flagsでneeds_reviewの印を付けるだけ。
+    issues += check_task_skill_consistency(tasks)
 
     # 無効な結果を修復するのではなく、印を付けるだけ
     tasks = apply_review_flags(tasks, issues)
