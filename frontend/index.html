@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>タスみる - 仕様書 → タスク自動割当</title>
+  </head>
+  <body>
+    <!-- 仕様書 → 要件抽出 → タスク分解 → 自動割当 → Kanban の11ステップ画面
+         （claude.ai/design「Spec to Tasks」）。描画は src/specToTasks/app.ts、
+         認証の振り分けは src/specToTasks/entry.ts。
+         従来の画面は legacy.html に残してある。 -->
+    <div id="demo-mode-banner" class="s2t-demo-banner" style="display: none">
+      DEMO MODE — バックエンド未接続のためサンプルデータを表示しています
+    </div>
+    <div id="s2t-root" style="display: none"></div>
+
+    <!-- 認証前の画面（チーム作成・招待参加） -->
+    <div class="auth-screen" id="screen-team-create" style="display: none"></div>
+    <div class="auth-screen" id="screen-join" style="display: none"></div>
+
+    <!-- チームメンバー（招待・削除・ログアウト） -->
+    <div id="team-overlay" class="s2t-overlay" style="display: none">
+      <div class="s2t-overlay-panel">
+        <button class="btn btn-ghost s2t-overlay-close" data-close-overlay>閉じる ×</button>
+        <div id="team-overlay-body"></div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/specToTasks/entry.ts"></script>
+    <script type="module" src="./src/icons.ts"></script>
+  </body>
+</html>

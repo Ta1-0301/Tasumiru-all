@@ -1,0 +1,61 @@
+/* Spec to Tasks ページ固有の上書き（デザインの <helmet> 内スタイルに対応）。
+   Industry DS のアクセントをオレンジ系に差し替える。 */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+body { margin: 0; font-family: "Barlow", "Noto Sans JP", system-ui, sans-serif; background: var(--color-bg); }
+a { color: var(--color-accent-700); }
+a:hover { color: var(--color-accent-800); }
+h1, h2, h3, h4 { font-family: "Barlow Condensed", "Noto Sans JP", sans-serif; }
+
+:root {
+  --color-accent: #f97316;
+  --color-accent-2: #fb923c;
+  --color-accent-100: #fff4ea;
+  --color-accent-200: #ffe3cc;
+  --color-accent-300: #fdc79a;
+  --color-accent-400: #fb923c;
+  --color-accent-500: #f97316;
+  --color-accent-600: #ea580c;
+  --color-accent-700: #c2410c;
+  --color-accent-800: #9a3412;
+  --color-accent-900: #6c2610;
+  --color-accent-2-100: #fff4ea;
+  --color-accent-2-200: #ffe3cc;
+  --color-accent-2-300: #fdc79a;
+  --color-accent-2-400: #fb923c;
+  --color-accent-2-500: #f97316;
+  --color-accent-2-600: #ea580c;
+  --color-accent-2-700: #c2410c;
+  --color-accent-2-800: #9a3412;
+  --color-accent-2-900: #6c2610;
+}
+
+.btn-primary { background: var(--color-accent-800); border-color: var(--color-accent-800); }
+.btn-primary:hover { background: var(--color-accent-700); }
+.btn-primary:active { background: var(--color-accent-900); }
+
+/* デザインの style-hover 属性の代替 */
+.s2t-drop:hover { background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
+/* Kanban のドロップ先ハイライト（ドラッグ中は再描画せずクラスで切替） */
+.s2t-kb-col.is-hover { background: var(--color-accent-100) !important; }
+.s2t-kb-card.is-dragging { opacity: .4; }
+
+/* 仕様書ファイルのドロップ先ハイライト */
+.s2t-drop.is-hover { background: var(--color-accent-100); border-color: var(--color-accent); }
+
+/* デモモードのバナー */
+.s2t-demo-banner {
+  position: sticky; top: 0; z-index: 20; padding: 6px 16px; text-align: center;
+  font-size: 12px; letter-spacing: .04em; background: var(--color-accent-800); color: #fff;
+}
+
+/* チームメンバーのオーバーレイ（中身は src/views/teamMembersView.ts） */
+.s2t-overlay {
+  position: fixed; inset: 0; z-index: 50; place-items: center; padding: 24px;
+  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+}
+.s2t-overlay-panel {
+  position: relative; width: min(720px, 100%); max-height: calc(100vh - 48px); overflow: auto;
+  background: #fff; border: 1px solid var(--color-divider); padding: 12px 8px 20px;
+}
+.s2t-overlay-close { position: absolute; top: 10px; right: 10px; font-size: 12px; padding: 3px 8px; }

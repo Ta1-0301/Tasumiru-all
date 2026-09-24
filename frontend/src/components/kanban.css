@@ -1,0 +1,16 @@
+/* src/components/kanban.css */
+/* パイプラインカンバンボード専用のレイアウト。カード/カラム自体の見た目は
+   style.css の既存 .kanban-column / .kanban-card をそのまま流用し、
+   ここでは盤面のレイアウトのみを追加する（デザインの重複定義を避ける）。 */
+
+.pipeline-kanban-board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  min-height: 420px;
+}
+
+.pipeline-kanban-board .kanban-column {
+  min-height: 420px;
+}

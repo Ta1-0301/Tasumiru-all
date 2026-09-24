@@ -16,8 +16,12 @@ backend/jobs/output/
 backend/services/rag/cache/
 backend/services/output/
 
-# フロントエンド（今回はバックエンドのみ公開するため対象外）
-frontend/
+# フロントエンドの依存パッケージ・ビルド成果物
+node_modules/
+frontend/dist/
+
+# テストキャッシュ
+.pytest_cache/
 
 # エディタ/ツール固有
 .claude/
