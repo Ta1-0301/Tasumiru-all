@@ -472,6 +472,49 @@ client can't be constructed at all, or an unrelated exception occurs).
 
 ---
 
+## 3.10 `POST /api/documents/parse` — convert a spec file (PDF/Word) to body text
+
+Added per `Backend依頼_仕様書ファイル変換API.md`. `backend/routers/documents.py`.
+File → text conversion only — **no DB write, no job started.** Reuses the
+existing `backend/services/parser.py` extraction logic unchanged (PyMuPDF for
+`.pdf`, python-docx for `.docx`, plain UTF-8 decode for `.txt`/`.md`).
+Auth: same team session cookie as every `/api/projects*` endpoint
+(`get_current_member`).
+
+Request: `multipart/form-data`, field name `file` (exactly one file).
+
+Response `200`:
+```json
+{
+  "filename": "EC_要件定義書.pdf",
+  "text": "1. 概要\n本書は…",
+  "char_count": 18420,
+  "page_count": 24,
+  "truncated": false
+}
+```
+`page_count` is `null` for `.docx`/`.txt`/`.md` (page count only makes sense
+for PDF). **`truncated` is always `false`** — unlike the legacy
+`parse_document()` used by `/api/tasks/generate` (§5.A), this endpoint calls
+a new `parse_document_full()` (same module) that does **not** apply
+`MAX_EXTRACT_CHARS` truncation, since the Phase 3-9 pipeline already
+processes the document in per-chunk pieces at the Requirements stage — there
+is no need to pre-truncate here, and doing so would silently drop content
+from long specs before requirement extraction ever sees it. This was 案A
+(recommended) from the request document; `parse_document()` itself is
+unchanged and the legacy endpoint's truncation behavior is untouched.
+
+Errors (same `{"detail": {"code", "message"}}` shape as every other endpoint):
+
+| status | code | condition |
+|---|---|---|
+| 400 | `UNSUPPORTED_FILE_TYPE` | Extension isn't `.pdf`/`.docx`/`.txt`/`.md` |
+| 400 | `EMPTY_DOCUMENT` | No extractable text (e.g. a scanned image-only PDF) |
+| 413 | `FILE_TOO_LARGE` | File exceeds `MAX_UPLOAD_SIZE` (default 20 MB) |
+| 401 | `UNAUTHENTICATED` | No/invalid session cookie |
+
+---
+
 ## 4. Endpoints — Requirements (Phase 3)
 
 **As of Phase 10, reachable indirectly via `GET /api/jobs/{job_id}/requirements`
@@ -771,10 +814,6 @@ added, renamed, or invented for this document.
   "acceptance_criteria": "string[]",        // default []
   "source_reference": { /* same shape as 11.3 */ } | null,
   "confidence": "number 0.0-1.0",           // required
-  "related_sources": [                      // default []; experimental RAG feature (ENABLE_RAG),
-    { "chunk_id": "string", "document_id": "string", "page": "integer | null",
-      "section": "string | null", "similarity": "number 0.0-1.0" }
-  ],
   "needs_review": "boolean",                // default false
   "review_reasons": "string[]"              // default []
 }
@@ -941,6 +980,18 @@ which reuses the pipeline's own types).
 }
 ```
 
+### 11.11 `ParsedDocument` (`backend/services/parser.py`) — **exposed via HTTP, §3.10**
+
+```jsonc
+{
+  "filename": "string",
+  "text": "string",
+  "char_count": "integer",
+  "page_count": "integer | null",   // null for .docx/.txt/.md
+  "truncated": "boolean"            // always false for this endpoint (§3.10)
+}
+```
+
 ---
 
 ## 12. Pipeline flow — documented against the actual code
@@ -1045,9 +1096,10 @@ json.dump(app.openapi(), open('docs/openapi.json','w'), ensure_ascii=False, inde
 "
 ```
 
-As of Phase 10 the app has **26 paths** (verified by re-running the command
+As of Phase 10 the app had **26 paths** (verified by re-running the command
 above and counting `schema['paths']`), 12 of which are the new
-Projects/Jobs endpoints from §3.9.
+Projects/Jobs endpoints from §3.9. As of the `/api/documents/parse` addition
+(§3.10) the count is **27 paths**.
 
 Cross-checking it against the implementation surfaced these gaps (also in
 the final report):

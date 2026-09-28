@@ -60,6 +60,7 @@ Copy-Item .env.example .env
 | `LLM_PROVIDER` | `ollama` | `ollama` または `anthropic` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama のアドレス |
 | `OLLAMA_MODEL` | `gemma3:4b` | 使用するモデル |
+| `OLLAMA_NUM_CTX` | `8192` | Ollama の文脈長（トークン数）。長い仕様書・タスク一覧の切り捨てを防ぐ |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | — | `LLM_PROVIDER=anthropic` の場合に設定 |
 | `ALLOWED_ORIGINS` | `http://localhost:5173` | CORS を許可するフロントエンドのオリジン（カンマ区切り） |
 | `ENABLE_RAG` | `false` | 実験的な RAG 機能（通常は `false` のまま） |
@@ -197,7 +198,7 @@ npm run build
 | 分析に非常に時間がかかる | PC の性能・モデルの大きさ | 小さいモデル（`gemma3:4b`）を使う。長い仕様書は分割する |
 | ブラウザで CORS エラーが出る | フロントエンドのアドレスが許可されていない | `.env` の `ALLOWED_ORIGINS` にフロントエンドの URL を追加する |
 | `uv: command not found` / `npm: command not found` | ツール未インストール、または PATH が古い | インストール後、ターミナルを開き直す |
-| PDF / Word が読み込めない | 分析 API はテキスト本文のみ対応 | ファイルを開いて本文をコピーし、画面の入力欄に貼り付ける |
+| 画面で PDF / Word が読み込めない | 画面はまだテキストファイルと貼り付けのみ対応（バックエンドには `POST /api/documents/parse` で PDF / Word を本文に変換する API がある） | ファイルを開いて本文をコピーし、画面の入力欄に貼り付ける |
 
 ---
 

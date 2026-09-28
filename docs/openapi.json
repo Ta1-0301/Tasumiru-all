@@ -1,4 +1,4 @@
-﻿{
+{
   "openapi": "3.1.0",
   "info": {
     "title": "タスみる API",
@@ -1040,6 +1040,48 @@
         }
       }
     },
+    "/api/documents/parse": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Parse Uploaded Document",
+        "description": "アップロードされたPDF/Word/テキストファイルを本文テキストに変換する。\n\n依頼仕様の案A: このAPIでは`MAX_EXTRACT_CHARS`による切り詰めを行わない\n（`truncated`は常に`False`）。新しいパイプラインはRequirementsステージで\n本文をチャンク単位に処理するため、ここで事前に切り詰める必要が無い。",
+        "operationId": "parse_uploaded_document_api_documents_parse_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_parse_uploaded_document_api_documents_parse_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParsedDocument"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -1125,6 +1167,17 @@
               "no_suitable_member"
             ],
             "title": "Status"
+          },
+          "unassigned_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unassigned Reason"
           }
         },
         "type": "object",
@@ -1224,6 +1277,20 @@
           "members_json"
         ],
         "title": "Body_generate_tasks_api_tasks_generate_post"
+      },
+      "Body_parse_uploaded_document_api_documents_parse_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_parse_uploaded_document_api_documents_parse_post"
       },
       "CandidateRejection": {
         "properties": {
@@ -2035,6 +2102,46 @@
         ],
         "title": "MissingRequirement",
         "description": "CHECK 1: 対応するタスクが1つも無い要求"
+      },
+      "ParsedDocument": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "char_count": {
+            "type": "integer",
+            "title": "Char Count"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "text",
+          "char_count"
+        ],
+        "title": "ParsedDocument",
+        "description": "`POST /api/documents/parse`のレスポンス（Backend依頼_仕様書ファイル変換API.md）"
       },
       "ProjectCreateRequest": {
         "properties": {
@@ -3189,6 +3296,30 @@
         "title": "TraceabilityIssue",
         "description": "Requirement -> Task のトレーサビリティが欠落しているタスク\n（Phase 8のCHECK 1とは逆方向の検証。このフェーズ独自）"
       },
+      "UnassignedTaskIssue": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "reason",
+          "message"
+        ],
+        "title": "UnassignedTaskIssue",
+        "description": "CHECK 9: 担当者を割り当てられなかったタスク。\n\n`reason`は`backend.pipeline.assignment.audit.UnassignedReason`の\nいずれか（NO_CANDIDATE/HARD_CONSTRAINT/NO_REQUIRED_SKILL/\nNO_AVAILABILITY/WORKLOAD_TOO_HIGH/INVALID_MEMBER_DATA/UNKNOWN）。\n候補ごとの詳細は`{job_id}.assignments.json`の\n`ai_recommendation.rejected_candidates`に既に保持されているため、\nここでは「一覧性」のためのサマリーとして最小限の情報だけを持つ。"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -3290,6 +3421,13 @@
             },
             "type": "array",
             "title": "Assignment Score Anomalies"
+          },
+          "unassigned_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/UnassignedTaskIssue"
+            },
+            "type": "array",
+            "title": "Unassigned Tasks"
           },
           "workload_summaries": {
             "items": {

@@ -1,28 +1,40 @@
 # Python
 __pycache__/
-*.pyc
+*.py[oc]
+build/
+wheels/
+*.egg-info
 .venv/
+
+# テストキャッシュ
+.pytest_cache/
 
 # ローカル設定・秘密情報（.env.example をコピーして使う）
 .env
-.env.local
+.env.*
+!.env.example
 
 # ローカルDB
 *.db
+*.db-journal
 
-# パイプライン中間出力（実行のたびに生成される、ソースではない）
-backend/pipeline/*/output/
-backend/jobs/output/
+# パイプライン中間出力（実行のたびに生成される、ソースではない。
+# ディレクトリ自体は .gitkeep で維持する）
+backend/pipeline/*/output/*
+backend/jobs/output/*
+!backend/pipeline/*/output/.gitkeep
+!backend/jobs/output/.gitkeep
 backend/services/rag/cache/
 backend/services/output/
+
+# パイプラインの構造化タイミングログ(backend/jobs/timing.py)の出力先
+backend/logs/*.log
 
 # フロントエンドの依存パッケージ・ビルド成果物
 node_modules/
 frontend/dist/
 
-# テストキャッシュ
-.pytest_cache/
-
-# エディタ/ツール固有
+# OS / エディタ / ツール固有
+.DS_Store
 .claude/
 .vscode/

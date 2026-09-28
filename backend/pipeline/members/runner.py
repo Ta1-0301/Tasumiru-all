@@ -66,12 +66,28 @@ def build_member_directory(
     )
 
 
-def save_member_directory(doc: MemberDirectory, output_dir: Path = OUTPUT_DIR) -> Path:
-    """members.json を保存する（確定済みデータとして永続化する）"""
+def save_member_directory(
+    doc: MemberDirectory,
+    output_dir: Path = OUTPUT_DIR,
+    *,
+    identifier: str | None = None,
+) -> Path:
+    """members.json を保存する（確定済みデータとして永続化する）
+
+    `identifier`: 呼び出し元が持つ一意なキー（例: project_id）。
+    従来はファイル名が `{team_id}_{秒単位タイムスタンプ}.members.json` のみで
+    組み立てられており、同一team内の複数の呼び出し元が同じ秒に保存すると
+    ファイル名が衝突し、一方のmembers.jsonがもう一方に上書きされる不具合が
+    あった。呼び出し元が`identifier`を渡した場合はファイル名に含めることで
+    この衝突を避ける（省略時は従来通りのファイル名になる — 後方互換）。
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     team_part = doc.team_id or "team"
-    out_path = output_dir / f"{team_part}_{timestamp}.members.json"
+    if identifier:
+        out_path = output_dir / f"{team_part}_{identifier}_{timestamp}.members.json"
+    else:
+        out_path = output_dir / f"{team_part}_{timestamp}.members.json"
     out_path.write_text(
         json.dumps(doc.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",

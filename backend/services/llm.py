@@ -13,6 +13,29 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 
+def _parse_positive_int(env_var: str, default: int) -> int:
+    """backend/services/concurrency.pyのget_max_concurrencyと同じ方針:
+    未設定/不正な値は保守的にデフォルトへフォールバックする（起動時に例外で
+    落ちたりしない）。"""
+    raw = os.getenv(env_var)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Ollamaのcontext window(トークン数)。未指定だとOllama側の実効デフォルト
+# (実測で約4096)に切り捨てられ、長い仕様書/大量Taskのプロンプトが欠落した
+# まま推論される→JSON parse失敗→call_llm_jsonのリトライ、という無駄な遅延が
+# 発生することを実測で確認した(2026-09-25の性能調査)。速度目的ではなく、
+# この切り捨てを防ぐための設定。既定値8192はApple M1/8GBでのメモリ使用量・
+# 生成品質を確認した上で採用（詳細はSTEP8のA/B計測記録を参照）。
+OLLAMA_NUM_CTX = _parse_positive_int("OLLAMA_NUM_CTX", 8192)
+
+
 class BaseLLMClient(ABC):
     """
     全プロバイダー共通のインターフェース。
@@ -41,9 +64,15 @@ class OllamaClient(BaseLLMClient):
             raise RuntimeError("環境変数 'OLLAMA_BASE_URL' が設定されていません。")
         self.base_url = OLLAMA_BASE_URL
         self.model = OLLAMA_MODEL
+        self.num_ctx = OLLAMA_NUM_CTX
 
     async def complete(self, prompt: str, *, json_mode: bool = False) -> str:
-        payload = {"model": self.model, "prompt": prompt, "stream": False}
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": self.num_ctx},
+        }
         if json_mode:
             payload["format"] = "json"
 

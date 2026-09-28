@@ -97,7 +97,7 @@ async def set_project_members(
     project = await _get_authorized_project(project_id, member, db)
 
     directory = build_member_directory(project.team_id, body.members)
-    path = save_member_directory(directory)
+    path = save_member_directory(directory, identifier=project.id)
 
     project.members_path = str(path)
     await db.commit()

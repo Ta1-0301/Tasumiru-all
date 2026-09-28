@@ -110,8 +110,8 @@ async def _redirect_member_output_to_tmp(tmp_path, monkeypatch):
     import backend.routers.projects as projects_router
     from backend.pipeline.members.runner import save_member_directory as _real_save_member_directory
 
-    def _save_member_directory_to_tmp(directory, output_dir=None):
-        return _real_save_member_directory(directory, output_dir=tmp_path / "members")
+    def _save_member_directory_to_tmp(directory, output_dir=None, **kwargs):
+        return _real_save_member_directory(directory, output_dir=tmp_path / "members", **kwargs)
 
     monkeypatch.setattr(projects_router, "save_member_directory", _save_member_directory_to_tmp)
 
@@ -146,6 +146,114 @@ async def _create_project_with_members(client, document_text="認証APIを実装
     )
     assert members_resp.status_code == 200
     return project_id
+
+
+# --- Members保存の衝突バグ (backend/pipeline/members/runner.py save_member_directory) の回帰テスト ---
+# 修正前は保存ファイル名が`{team_id}_{秒単位タイムスタンプ}.members.json`のみで
+# 決まっており、project_idが含まれていなかった。同一チームの複数プロジェクトが
+# 同じ秒にMembersを保存すると、後から保存した方が先に保存した方のmembers.jsonを
+# 上書きしてしまっていた。
+
+async def test_members_do_not_leak_between_projects_in_same_team(client, db_engine, tmp_path, monkeypatch):
+    """ケース1: 同一TeamにProject A/Bを作り、別々のMembersを登録した場合、
+    それぞれのGET /membersが自分自身のMembersだけを返すことを確認する。"""
+    await _create_team(client)
+
+    resp_a = await client.post("/api/projects", json={"name": "Project A"})
+    project_a = resp_a.json()["id"]
+    resp_b = await client.post("/api/projects", json={"name": "Project B"})
+    project_b = resp_b.json()["id"]
+
+    put_a = await client.put(
+        f"/api/projects/{project_a}/members",
+        json={"members": [{
+            "id": "M-ALICE", "name": "Alice",
+            "availability": {"available_hours_per_week": 40, "working_days": ["Monday"], "current_assigned_hours": 0},
+        }]},
+    )
+    put_b = await client.put(
+        f"/api/projects/{project_b}/members",
+        json={"members": [{
+            "id": "M-BOB", "name": "Bob",
+            "availability": {"available_hours_per_week": 30, "working_days": ["Tuesday"], "current_assigned_hours": 0},
+        }]},
+    )
+    assert put_a.status_code == 200
+    assert put_b.status_code == 200
+
+    get_a = await client.get(f"/api/projects/{project_a}/members")
+    get_b = await client.get(f"/api/projects/{project_b}/members")
+    assert get_a.status_code == 200
+    assert get_b.status_code == 200
+    assert {m["id"] for m in get_a.json()["members"]} == {"M-ALICE"}
+    assert {m["id"] for m in get_b.json()["members"]} == {"M-BOB"}
+
+
+async def test_concurrent_member_saves_across_projects_do_not_collide(client, db_engine, tmp_path, monkeypatch):
+    """ケース2: 同一Team内の複数ProjectへのMembers保存をほぼ同時に行っても、
+    保存ファイルの衝突で片方が上書きされないことを確認する。"""
+    await _create_team(client)
+
+    resp_a = await client.post("/api/projects", json={"name": "Project A"})
+    project_a = resp_a.json()["id"]
+    resp_b = await client.post("/api/projects", json={"name": "Project B"})
+    project_b = resp_b.json()["id"]
+
+    payload_a = {"members": [{
+        "id": "M-ALICE", "name": "Alice",
+        "availability": {"available_hours_per_week": 40, "working_days": ["Monday"], "current_assigned_hours": 0},
+    }]}
+    payload_b = {"members": [{
+        "id": "M-BOB", "name": "Bob",
+        "availability": {"available_hours_per_week": 30, "working_days": ["Tuesday"], "current_assigned_hours": 0},
+    }]}
+
+    resp_put_a, resp_put_b = await asyncio.gather(
+        client.put(f"/api/projects/{project_a}/members", json=payload_a),
+        client.put(f"/api/projects/{project_b}/members", json=payload_b),
+    )
+    assert resp_put_a.status_code == 200
+    assert resp_put_b.status_code == 200
+
+    get_a = await client.get(f"/api/projects/{project_a}/members")
+    get_b = await client.get(f"/api/projects/{project_b}/members")
+    assert {m["id"] for m in get_a.json()["members"]} == {"M-ALICE"}
+    assert {m["id"] for m in get_b.json()["members"]} == {"M-BOB"}
+
+
+async def test_job_pipeline_reads_only_its_own_project_members(client, db_engine, tmp_path, monkeypatch):
+    """ケース4: 同一TeamにProject A/Bが存在する状態でProject Bのジョブを実行しても、
+    ジョブが読み込む/最終出力に含まれるMembersはProject B自身のものだけであり、
+    Project AのMembers(Alice)が混入しないことを確認する。"""
+    _configure_job_manager_for_test(db_engine, tmp_path, monkeypatch, FakeLLMClient())
+    await _create_team(client)
+
+    resp_a = await client.post("/api/projects", json={"name": "Project A", "document_text": "ダミー仕様書"})
+    project_a = resp_a.json()["id"]
+    await client.put(
+        f"/api/projects/{project_a}/members",
+        json={"members": [{
+            "id": "M-ALICE", "name": "Alice",
+            "availability": {"available_hours_per_week": 40, "working_days": ["Monday"], "current_assigned_hours": 0},
+        }]},
+    )
+
+    project_b = await _create_project_with_members(
+        client, document_text="認証APIを実装してください。招待URLで参加できるようにすること。"
+    )
+
+    gen_resp = await client.post(f"/api/projects/{project_b}/generate", json={})
+    assert gen_resp.status_code == 202
+    job_id = gen_resp.json()["job_id"]
+
+    final_status, _ = await _poll_until_terminal(client, job_id)
+    assert final_status["status"] == "completed"
+
+    result_resp = await client.get(f"/api/jobs/{job_id}/result")
+    assert result_resp.status_code == 200
+    result_member_ids = {m["id"] for m in result_resp.json()["members"]}
+    assert result_member_ids == {"M-001"}  # _create_project_with_membersが登録したProject B自身のMembers
+    assert "M-ALICE" not in result_member_ids
 
 
 async def _poll_until_terminal(client, job_id, timeout_ticks=200):
