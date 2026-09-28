@@ -77,7 +77,7 @@ Read directly from the Phase 3-9 source (not guessed) before any change was made
 | Task decomposition (`tasks/runner.py` → `decomposer.py`) | 1 per requirement (N requirements) | Yes, `for` loop | No — same reasoning; this is also the stage with the *most* calls on a real spec (more requirements than chunks), so it's the primary target | **Yes** — each requirement's decomposition has zero dependency on any other requirement's result |
 | Dependency proposal (`dependencies/proposer.py`) | **1 call for the entire task list** | N/A — already a single call | Already optimal (no merge opportunity left) | N/A |
 | Member retrieval (`members/runner.py`) | **0** — deterministic file I/O | N/A | N/A | N/A |
-| Assignment reasoning (`assignment/reasoning.py`, opt-in, `use_assignment_llm_reasoning`, default off) | 1 per task, only if enabled | Yes, `for` loop in `jobs/manager.py::_run_assignments` | No — each task's top-3-candidate context is task-specific | **Yes** — independent per task |
+| Assignment reasoning (`assignment/reasoning.py`, opt-in, `use_assignment_llm_reasoning`, default off) | 1 per task, only if enabled | Yes, `for` loop in `jobs/manager.py::_run_assignments` | No — each task's top-3-candidate context is task-specific | **No** (since the workload-cap change) — assignment runs sequentially because each task's candidates depend on the hours already assigned (100% cap / load balancing / deadlines) |
 | Duplicate LLM verification (`validation/duplicates.py`, opt-in, `use_duplicate_llm_verification`, default off) | 1 per candidate duplicate pair, only if enabled | Yes, `for` loop | No — each pair independent | **Yes** — independent per pair |
 
 **Finding on Part 2 (reduce unnecessary LLM calls):** every LLM call site
@@ -126,7 +126,7 @@ Wired into every independent per-item loop identified in the Part 1 audit:
 |---|---|---|
 | Requirement extraction over chunks | `pipeline/requirements/runner.py` | Yes — `asyncio.gather` semantics preserve input order regardless of completion order, so `REQ-001, REQ-002, ...` ID assignment stays deterministic/reproducible at any concurrency level |
 | Task decomposition over requirements | `pipeline/tasks/runner.py` | Yes, same reasoning for `TASK-001, TASK-002, ...` |
-| Assignment over tasks | `jobs/manager.py::_run_assignments` | Yes |
+| Assignment over tasks | `jobs/manager.py::_run_assignments` | N/A — always sequential (deadline order, then original order); results are returned in the original task order |
 | Duplicate LLM verification over candidate pairs | `pipeline/validation/duplicates.py` | Yes |
 
 Reproducibility (Phase 9's requirement) is preserved regardless of the

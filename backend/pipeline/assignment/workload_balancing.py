@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+from backend.pipeline.assignment.deadline import AssignmentLedger
 from backend.pipeline.assignment.schema import AssignmentTask, CandidateScore
 from backend.pipeline.members.schema import Member
 
@@ -33,6 +34,10 @@ from backend.pipeline.members.schema import Member
 # 重要なため、環境変数化はせずコード上の設定値とする）。
 WORKLOAD_WARNING_PERCENTAGE = 80.0
 MAX_WORKLOAD_PERCENTAGE = 100.0
+
+# 台帳あり（負荷の均一化）の場合に「スキル面で同等」とみなすskill_matchの差。
+# skill_matchは必要スキルごとの level/5 の平均なので、0.2 = 1レベル分の差。
+SKILL_MATCH_TOLERANCE = 0.2
 
 
 def compute_projected_workload_percentage(task: AssignmentTask, member: Member) -> float:
@@ -50,11 +55,60 @@ def compute_projected_workload_percentage(task: AssignmentTask, member: Member) 
     return 100.0 if projected_hours > 0 else 0.0
 
 
+def _select_balanced_candidate(
+    task: AssignmentTask,
+    candidate_scores: List[CandidateScore],
+    members_by_id: Dict[str, Member],
+    ledger: AssignmentLedger,
+    warning_threshold: float,
+) -> Tuple[CandidateScore, List[str]]:
+    """台帳（割当済み工数）がある場合の推薦者の選び方。
+
+    ここに来る候補は、`filters.py`で「割当後に100%を超える」「期限までに
+    完了できない」候補が既に除外されている（全員が100%以内）。
+
+      1. 割当後の負荷率が`warning_threshold`(80%)以下の候補がいれば、その中から選ぶ
+         （いなければ全候補から選び、高負荷の警告を残す）。既存の閾値ロジックと同じ考え方。
+      2. その中で、スキル一致度(skill_match)が最良の候補から`SKILL_MATCH_TOLERANCE`
+         以内の候補を「スキル面で同等」とみなす（スキルの劣る人を負荷だけで選ばない）。
+      3. 同等の候補の中で、割当後の負荷率が最も低い候補を選ぶ
+         （負荷の低い人から埋めることで、メンバー間の負荷差を小さくする）。
+         同率ならスコアの高い順、さらにmember_id順。
+    """
+    projected = {
+        c.member_id: ledger.projected_percentage(members_by_id[c.member_id], task.estimated_hours)
+        for c in candidate_scores
+    }
+    top = candidate_scores[0]
+    under = [c for c in candidate_scores if projected[c.member_id] <= warning_threshold]
+    pool = under or candidate_scores
+
+    best_skill = max(c.skill_match for c in pool)
+    comparable = [c for c in pool if c.skill_match >= best_skill - SKILL_MATCH_TOLERANCE - 1e-9]
+    chosen = min(comparable, key=lambda c: (projected[c.member_id], -c.score, c.member_id))
+
+    notes: List[str] = []
+    if chosen.member_id != top.member_id:
+        notes.append(
+            f"負荷の均一化のため、スコア最上位候補({top.member_id}: "
+            f"割当後稼働率{projected[top.member_id]}%)ではなく、"
+            f"割当後稼働率{projected[chosen.member_id]}%の{chosen.member_id}"
+            f"(スコア{chosen.score}点)を推薦しました（load balancing）"
+        )
+    if not under:
+        notes.append(
+            f"すべての候補者の割当後稼働率が{warning_threshold}%を超えています"
+            f"（推薦した{chosen.member_id}: {projected[chosen.member_id]}%、上限100%以内）。"
+        )
+    return chosen, notes
+
+
 def select_recommended_candidate(
     task: AssignmentTask,
     candidate_scores: List[CandidateScore],
     members_by_id: Dict[str, Member],
     warning_threshold: float = WORKLOAD_WARNING_PERCENTAGE,
+    ledger: Optional[AssignmentLedger] = None,
 ) -> Tuple[Optional[CandidateScore], List[str]]:
     """スコア降順の候補者一覧から、稼働バランスを考慮して推薦者を1人選ぶ。
 
@@ -69,9 +123,15 @@ def select_recommended_candidate(
       3. 生存者全員が閾値を超える場合、元のスコア最上位候補をそのまま推薦し、
          「全候補が過負荷」という警告を記録する（依頼Part 11:
          "still allow assignment if necessary, mark it as an overload warning"）。
+
+    `ledger`（割当済み工数の台帳）が渡された場合は、累積の負荷率で
+    `_select_balanced_candidate`が選ぶ（100%超過の候補はfilters.pyで既に除外済み）。
     """
     if not candidate_scores:
         return None, []
+
+    if ledger is not None:
+        return _select_balanced_candidate(task, candidate_scores, members_by_id, ledger, warning_threshold)
 
     projected = {
         c.member_id: compute_projected_workload_percentage(task, members_by_id[c.member_id])

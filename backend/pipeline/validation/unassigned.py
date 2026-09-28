@@ -27,6 +27,7 @@ _REASON_MESSAGES = {
     "NO_REQUIRED_SKILL": "必要スキルを持つ候補者がいませんでした",
     "NO_AVAILABILITY": "稼働可能な候補者がいませんでした",
     "WORKLOAD_TOO_HIGH": "見積り工数が全候補者の残りキャパシティを超えていました",
+    "DEADLINE_INFEASIBLE": "期限までに完了できる稼働時間を持つ候補者がいませんでした",
     "INVALID_MEMBER_DATA": "メンバーデータの読み込みエラーにより候補者が存在しませんでした",
     "UNKNOWN": "未割当の理由を特定できませんでした",
 }

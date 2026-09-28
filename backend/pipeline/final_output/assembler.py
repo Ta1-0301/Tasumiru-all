@@ -13,7 +13,7 @@ assignmentsはPhase 3-7の出力からそのまま転記する。新規に計算
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from backend.pipeline.assignment.schema import FinalAssignment
@@ -39,6 +39,9 @@ def assemble_final_output(
     assignments: List[FinalAssignment],
     validation_report: ValidationReport,
     project_name: Optional[str] = None,
+    start_date: Optional[date] = None,
+    due_date: Optional[date] = None,
+    planning_reference_date: Optional[date] = None,
 ) -> FinalProjectOutput:
     """検証済みの中間結果だけから、最終的な構造化プロジェクト出力を組み立てる。
 
@@ -70,6 +73,9 @@ def assemble_final_output(
         document_id=requirement_document.document_id,
         name=project_name,
         exported_at=generated_at,
+        start_date=start_date,
+        due_date=due_date,
+        planning_reference_date=planning_reference_date,
     )
 
     return FinalProjectOutput(

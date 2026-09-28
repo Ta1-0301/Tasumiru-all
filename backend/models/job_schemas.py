@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -24,6 +24,8 @@ class ErrorDetail(BaseModel):
 class ProjectCreateRequest(BaseModel):
     name: Optional[str] = Field(None, description="プロジェクト名（表示用、任意）")
     document_text: Optional[str] = Field(None, description="仕様書本文（後から/generate時に渡すことも可能）")
+    start_date: Optional[date] = Field(None, description="計画の開始日（任意。未設定なら生成ジョブの実行日）")
+    due_date: Optional[date] = Field(None, description="プロジェクトの納期（任意。期限の無いタスクに適用される）")
 
 
 class ProjectResponse(BaseModel):
@@ -32,6 +34,8 @@ class ProjectResponse(BaseModel):
     name: Optional[str] = None
     has_document: bool
     has_members: bool
+    start_date: Optional[date] = None
+    due_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
 
@@ -51,6 +55,12 @@ class GenerateRequest(BaseModel):
     )
     use_duplicate_llm_verification: bool = Field(
         False, description="Phase 8 CHECK 2の重複候補についてLLM検証を行うか（既定オフ）"
+    )
+    start_date: Optional[date] = Field(
+        None, description="指定した場合、生成前にプロジェクトの開始日を更新する"
+    )
+    due_date: Optional[date] = Field(
+        None, description="指定した場合、生成前にプロジェクトの納期を更新する"
     )
 
 

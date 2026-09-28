@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Set
 
 from backend.pipeline.assignment.audit import determine_unassigned_reason, find_fallback_candidate
+from backend.pipeline.assignment.deadline import AssignmentLedger, free_hours_until
 from backend.pipeline.assignment.filters import filter_candidates
 from backend.pipeline.assignment.reasoning import generate_llm_reasoning
 from backend.pipeline.assignment.schema import AssignmentResult, AssignmentTask, ScoringWeights
@@ -32,9 +33,15 @@ from backend.services.llm import BaseLLMClient
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 
-def _build_score_summary_reason(task: AssignmentTask, top_member: Member, top_score) -> str:
+def _build_score_summary_reason(
+    task: AssignmentTask, top_member: Member, top_score, is_top: bool = True,
+) -> str:
+    head = (
+        f"{top_member.name}が最高スコア({top_score.score}点)でした" if is_top
+        else f"{top_member.name}を推薦しました（スコア{top_score.score}点）"
+    )
     return (
-        f"{top_member.name}が最高スコア({top_score.score}点)でした"
+        f"{head}"
         f"（skill_match={top_score.skill_match}, workload={top_score.workload_score}, "
         f"experience={top_score.experience_score}, availability={top_score.availability_score}）"
     )
@@ -61,6 +68,25 @@ def _build_unmet_dependency_warnings(
     return []
 
 
+def _build_deadline_reason(
+    task: AssignmentTask, member: Member, ledger: Optional[AssignmentLedger]
+) -> List[str]:
+    """期限付きタスクの場合、期限内に完了可能と判定した根拠を理由として残す"""
+    if (
+        ledger is None or ledger.reference_date is None
+        or task.due_date is None or task.estimated_hours is None
+    ):
+        return []
+    available = round(free_hours_until(member, ledger.reference_date, task.due_date), 2)
+    committed = round(sum(
+        h for h, d in ledger.committed.get(member.id, []) if d is not None and d <= task.due_date
+    ), 2)
+    return [
+        f"期限({task.due_date.isoformat()})までの稼働可能時間{available}hに対し、"
+        f"割当済み{committed}h + このタスク{task.estimated_hours}hで期限内に完了可能です"
+    ]
+
+
 async def run_assignment(
     task: AssignmentTask,
     members: Iterable[Member],
@@ -68,6 +94,7 @@ async def run_assignment(
     client: Optional[BaseLLMClient] = None,
     completed_task_ids: Optional[Set[str]] = None,
     member_load_errors: bool = False,
+    ledger: Optional[AssignmentLedger] = None,
 ) -> AssignmentResult:
     """1件のタスクに対するメンバーアサインを推薦する。
 
@@ -77,9 +104,15 @@ async def run_assignment(
     `member_load_errors`はAssignment Audit用の任意引数（既定False）。
     メンバーディレクトリの読み込み時に無効なレコードが存在したかどうかを
     伝えるだけで、フィルタリング・スコアリングの判定には一切影響しない。
+
+    `ledger`は割当済み工数の台帳（任意、既定None＝従来と同じ判定）。
+    渡された場合、割当後に負荷率が100%を超える候補と、期限までに完了できない
+    候補をハード制約として除外し、残った候補の中から負荷が均一になる候補を
+    推薦する（`workload_balancing.select_recommended_candidate`）。
+    台帳への追記は呼び出し側が行う。
     """
     members = list(members)
-    survivors, rejections = filter_candidates(task, members)
+    survivors, rejections = filter_candidates(task, members, ledger)
 
     dependency_warnings = _build_unmet_dependency_warnings(task, completed_task_ids)
 
@@ -88,7 +121,9 @@ async def run_assignment(
         # で拒否された候補は対象にせず、スキル不一致のみで拒否された候補の中に
         # 既存のTF-IDF skill_similarityが閾値を超える者がいる場合に限り、
         # 警告付きで候補として提示する（ハード制約を回避するものではない）。
-        fallback = find_fallback_candidate(task, members, rejections, weights)
+        fallback = find_fallback_candidate(
+            task, members, rejections, weights, ledger=ledger,
+        )
         if fallback is not None:
             fallback_member = next(m for m in members if m.id == fallback.member_id)
             return AssignmentResult(
@@ -100,13 +135,14 @@ async def run_assignment(
                 reasons=[
                     f"{fallback_member.name}は必要スキルの完全一致は無いものの、"
                     f"関連スキルの類似度({fallback.skill_similarity})からFallback候補として提示します"
-                ],
+                ] + _build_deadline_reason(task, fallback_member, ledger),
                 warnings=["REQUIRED_SKILL_NOT_EXACT_MATCH"] + dependency_warnings,
                 status="recommended",
             )
 
         unassigned_reason = determine_unassigned_reason(
             task, members, rejections, member_load_errors=member_load_errors,
+            ledger=ledger,
         )
         return AssignmentResult(
             task_id=task.task_id,
@@ -122,10 +158,15 @@ async def run_assignment(
     # Part 11: スコア最上位ではなく、稼働バランスを考慮した推薦者を選ぶ。
     # `candidate_scores`自体はここでは並べ替えない（純粋なスコアランキングとして
     # そのままAssignmentResultに残す。Part 15: traceability）。
-    recommended, workload_warnings = select_recommended_candidate(task, candidate_scores, member_by_id)
+    recommended, workload_warnings = select_recommended_candidate(
+        task, candidate_scores, member_by_id, ledger=ledger,
+    )
     recommended_member = member_by_id[recommended.member_id]
 
-    reasons = [_build_score_summary_reason(task, recommended_member, recommended)]
+    reasons = [_build_score_summary_reason(
+        task, recommended_member, recommended, is_top=recommended is candidate_scores[0],
+    )]
+    reasons += _build_deadline_reason(task, recommended_member, ledger)
     warnings = _build_soft_constraint_warnings(recommended_member) + dependency_warnings + workload_warnings
 
     ambiguity_warning = detect_close_scores(candidate_scores)

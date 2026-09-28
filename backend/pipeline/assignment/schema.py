@@ -10,6 +10,7 @@ Phase 7のデータ構造。
 
 from __future__ import annotations
 
+from datetime import date
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -44,6 +45,13 @@ class AssignmentTask(BaseModel):
     )
     dependencies: List[str] = Field(
         default_factory=list, description="このタスクの前提となるタスクIDの一覧"
+    )
+    due_date: Optional[date] = Field(
+        None,
+        description=(
+            "このタスクの期限（YYYY-MM-DD）。未設定なら期限内完了可能性の判定は"
+            "行わない（従来と同じ挙動）。"
+        ),
     )
 
 

@@ -9,6 +9,7 @@ Phase 3-7の型をそのまま再利用する（このフェーズ独自の再�
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -30,6 +31,11 @@ class ProjectInfo(BaseModel):
     document_id: str
     name: Optional[str] = None
     exported_at: Optional[str] = None
+    # 納期考慮（任意）。planning_reference_dateは期限計算の基準日
+    # （start_date未設定時は生成ジョブの実行日）。
+    start_date: Optional[date] = None
+    due_date: Optional[date] = None
+    planning_reference_date: Optional[date] = None
 
 
 class TraceabilityIssue(BaseModel):

@@ -8,6 +8,9 @@
 //   - 負荷は backend/pipeline/validation/workload.py と同じく
 //     「割当タスクの見積り合計 / available_hours_per_week」に、
 //     Phase 6 の current_assigned_hours（既存業務）を加えて表示する。
+//     バックエンドが納期を考慮して計画期間ベースで負荷を計算した場合
+//     （workload_summaries[].basis === "period"）は、上限をその期間の稼働可能時間に、
+//     既存業務（週あたり）も同じ期間分に換算して表示する。
 //   - スキル不足は backend/pipeline/validation/skill_mismatch.py と同じく
 //     「必要スキルを保有していない（要求レベル1未満）」で判定する
 //     （Task.required_skills は要求レベルを持たないため）。
@@ -39,9 +42,9 @@ export interface VMember {
   ini: string;
   /** 上位スキルから作る表示用の肩書き */
   role: string;
-  /** 週あたり稼働可能時間（available_hours_per_week） */
+  /** 稼働上限。週あたり稼働可能時間、または納期考慮時は計画期間内の稼働可能時間 */
   cap: number;
-  /** 既存業務の時間（current_assigned_hours） */
+  /** 既存業務の時間（current_assigned_hours。納期考慮時は計画期間分に換算） */
   base: number;
   /** 正規化スキル名 -> レベル(1-5) */
   sk: Record<string, number>;
@@ -112,6 +115,8 @@ export interface Model {
   validation: ValidationSummary;
   dependencyCount: number;
   generatedAt: string | null;
+  /** 納期考慮時の計画期間（負荷の上限の基準）。週ベースなら null */
+  period: { start: string; end: string } | null;
 }
 
 export const norm = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -295,6 +300,17 @@ export function buildModel(out: FinalProjectOutput, documentText: string): Model
 
   const { doc, fromQuotes } = buildDoc(documentText, reqs);
 
+  // 納期考慮: バックエンドが計画期間ベースで負荷を計算した場合は、その上限を使う
+  let period: Model["period"] = null;
+  (out.validation?.report?.workload_summaries ?? []).forEach((s) => {
+    const m = members.find((x) => x.id === s.member_id);
+    if (!m || s.basis !== "period" || !s.weekly_available_hours || !s.period_start || !s.period_end) return;
+    const factor = s.available_hours / s.weekly_available_hours;
+    m.cap = s.available_hours;
+    m.base = Math.round(m.base * factor * 10) / 10;
+    period ||= { start: s.period_start, end: s.period_end };
+  });
+
   return {
     name: out.project?.name || "無題のプロジェクト",
     documentId: out.project?.document_id ?? "",
@@ -313,7 +329,13 @@ export function buildModel(out: FinalProjectOutput, documentText: string): Model
     validation: out.validation,
     dependencyCount: (out.dependencies ?? []).length,
     generatedAt: out.metadata?.generated_at ?? null,
+    period,
   };
+}
+
+/** 負荷の上限が何を表すか（凡例・説明用） */
+export function capLabel(M: Model): string {
+  return M.period ? `${M.period.start}〜${M.period.end}の稼働可能時間` : "週あたり稼働可能時間";
 }
 
 // ─── 負荷・適合度の計算 ─────────────────────────────────────────────────────
@@ -401,6 +423,7 @@ const UNASSIGNED_REASON_MESSAGES: Record<string, string> = {
   NO_REQUIRED_SKILL: "必要スキルを持つ候補者がいませんでした",
   NO_AVAILABILITY: "稼働可能な候補者がいませんでした",
   WORKLOAD_TOO_HIGH: "見積り工数が全候補者の残りキャパシティを超えていました",
+  DEADLINE_INFEASIBLE: "期限までに完了できる稼働時間を持つ候補者がいませんでした",
   INVALID_MEMBER_DATA: "メンバーデータの読み込みエラーにより候補者が存在しませんでした",
   UNKNOWN: "未割当の理由を特定できませんでした",
 };

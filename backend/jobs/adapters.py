@@ -13,7 +13,8 @@ Phase 4の`Task`とPhase 5の`Dependency`から、Phase 7の`AssignmentTask`を
 
 from __future__ import annotations
 
-from typing import List
+from datetime import date
+from typing import List, Optional
 
 from backend.pipeline.assignment.schema import AssignmentTask
 from backend.pipeline.dependencies.schema import Dependency
@@ -21,11 +22,16 @@ from backend.pipeline.tasks.schema import Task
 from backend.pipeline.validation.skill_mismatch import default_required_skills
 
 
-def task_to_assignment_task(task: Task, dependencies: List[Dependency]) -> AssignmentTask:
+def task_to_assignment_task(
+    task: Task, dependencies: List[Dependency], default_due_date: Optional[date] = None,
+) -> AssignmentTask:
     """1件のTaskを、Phase 7が必要とするAssignmentTaskに変換する。
 
     `dependencies`は、このタスクが後続(to_task_id)となっている辺の
     from_task_id一覧（＝前提タスクID一覧）として引き継ぐ。
+
+    `due_date`はタスク個別の期限を優先し、無ければ`default_due_date`
+    （プロジェクトの納期）を使う。どちらも無ければNone（従来と同じ）。
     """
     prerequisite_ids = [d.from_task_id for d in dependencies if d.to_task_id == task.id]
 
@@ -36,4 +42,5 @@ def task_to_assignment_task(task: Task, dependencies: List[Dependency]) -> Assig
         estimated_hours=task.estimated_hours,
         priority=task.priority,
         dependencies=prerequisite_ids,
+        due_date=task.due_date or default_due_date,
     )

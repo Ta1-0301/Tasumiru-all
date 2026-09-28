@@ -76,6 +76,8 @@ export interface PipelineTask {
   confidence: number;
   needs_review: boolean;
   review_reasons: string[];
+  // タスク個別の期限（任意、YYYY-MM-DD）。LLMのタスク生成は設定しない。
+  due_date?: string | null;
 }
 
 export interface TaskIssue {
@@ -271,6 +273,12 @@ export interface WorkloadSummary {
   available_hours: number;
   remaining_capacity: number;
   workload_percentage: number;
+  // 納期考慮で追加。"period" のとき available_hours は period_start〜period_end の
+  // 稼働可能時間（"weekly" または未設定なら従来通り週あたり稼働可能時間）。
+  basis?: "weekly" | "period";
+  weekly_available_hours?: number | null;
+  period_start?: string | null;
+  period_end?: string | null;
 }
 
 export interface ValidationReport {
@@ -306,6 +314,10 @@ export interface ProjectMeta {
   document_id: string;
   name: string | null;
   exported_at: string | null;
+  // 納期考慮（任意、YYYY-MM-DD）
+  start_date?: string | null;
+  due_date?: string | null;
+  planning_reference_date?: string | null;
 }
 
 // 【2026-08-31修正】実際の /openapi.json では prompt_versions は固定4キーの

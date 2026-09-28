@@ -10,6 +10,7 @@ workload_warnings/skill_mismatches/constraint_violations)と1対1で対応する
 
 from __future__ import annotations
 
+from datetime import date
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -47,6 +48,14 @@ class WorkloadSummary(BaseModel):
     available_hours: float
     remaining_capacity: float
     workload_percentage: float
+
+    # 納期考慮で追加（既存フィールドは変更しない）。basis="weekly"なら
+    # available_hoursは従来通りavailable_hours_per_week。basis="period"なら
+    # available_hoursは period_start〜period_end の期間内の稼働可能時間。
+    basis: Literal["weekly", "period"] = "weekly"
+    weekly_available_hours: Optional[float] = None
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
 
 
 class WorkloadWarning(BaseModel):

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -59,6 +59,8 @@ def validate_project_plan(
     required_skill_levels: Optional[Dict[str, List[RequiredSkill]]] = None,
     duplicate_similarity_threshold: float = 0.7,
     final_assignments: Optional[List[FinalAssignment]] = None,
+    reference_date: Optional[date] = None,
+    default_due_date: Optional[date] = None,
 ) -> ValidationReport:
     """CHECK 1-9を実行し、ValidationReportを構築する（決定的、LLM不使用）。
 
@@ -72,7 +74,10 @@ def validate_project_plan(
     missing_requirements = find_missing_requirements(requirements, tasks)
     duplicate_tasks = find_duplicate_candidates(tasks, threshold=duplicate_similarity_threshold)
     dependency_errors = check_dependencies(dependencies, valid_task_ids, assignments)
-    workload_summaries, workload_warnings = check_workload(members, tasks, assignments)
+    workload_summaries, workload_warnings = check_workload(
+        members, tasks, assignments,
+        reference_date=reference_date, default_due_date=default_due_date,
+    )
     skill_mismatches = check_skill_mismatches(tasks, members, assignments, required_skill_levels)
     constraint_violations = check_assignment_constraints(tasks, members, assignments, required_skill_levels)
     task_quality_issues = check_task_quality(tasks)
@@ -126,6 +131,8 @@ async def validate_project_plan_with_llm_verification(
     required_skill_levels: Optional[Dict[str, List[RequiredSkill]]] = None,
     duplicate_similarity_threshold: float = 0.7,
     final_assignments: Optional[List[FinalAssignment]] = None,
+    reference_date: Optional[date] = None,
+    default_due_date: Optional[date] = None,
 ) -> ValidationReport:
     """`validate_project_plan`を実行した上で、`client`が渡された場合のみ、
     CHECK 2の重複候補についてLLMによる意味的検証を追加する（任意）。
@@ -138,6 +145,8 @@ async def validate_project_plan_with_llm_verification(
         required_skill_levels=required_skill_levels,
         duplicate_similarity_threshold=duplicate_similarity_threshold,
         final_assignments=final_assignments,
+        reference_date=reference_date,
+        default_due_date=default_due_date,
     )
 
     if client is not None and report.duplicate_tasks:

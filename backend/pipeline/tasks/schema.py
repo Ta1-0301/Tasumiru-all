@@ -13,6 +13,7 @@ Phase 4の出力データ構造（tasks.json）。
 
 from __future__ import annotations
 
+from datetime import date
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -68,6 +69,11 @@ class Task(BaseModel):
     # Task Validationが検出した問題を「修復せず印を付ける」ためのフィールド
     needs_review: bool = False
     review_reasons: List[str] = Field(default_factory=list)
+
+    # 納期（任意）。LLMのタスク生成はこの値を設定しない（常にNone）。
+    # 人が個別に期限を設定した場合のみ値を持ち、未設定のタスクには
+    # プロジェクトの納期(ProjectModel.due_date)が適用される（jobs/adapters.py）。
+    due_date: Optional[date] = Field(None, description="タスクの期限（YYYY-MM-DD、任意）")
 
 
 class ValidationIssue(BaseModel):

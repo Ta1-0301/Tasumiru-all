@@ -10,6 +10,11 @@ Step 1: Candidate Filtering。
   - workload exceeds maximum         -> check_workload
   - explicit assignment restriction  -> check_explicit_constraints
 
+割当済み工数の台帳（`ledger`: `deadline.AssignmentLedger`）が渡された場合のみ、
+次の2チェックを追加する。既存の4チェックはそのまま実行され、緩められることはない。
+  - cumulative workload over 100%   -> deadline.check_cumulative_workload
+  - cannot finish by due date       -> deadline.check_deadline（タスクにdue_dateがある場合）
+
 LLMはこのステップに一切関与しない。ここで除外された候補者は、
 Step 2（スコアリング）・Step 3（LLMの補足説明）のどちらにも渡されない
 ——「LLMはハード制約を回避できない」という要件の構造的な保証。
@@ -17,8 +22,9 @@ Step 2（スコアリング）・Step 3（LLMの補足説明）のどちらに�
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
+from backend.pipeline.assignment.deadline import AssignmentLedger, check_cumulative_workload, check_deadline
 from backend.pipeline.assignment.schema import AssignmentTask, CandidateRejection
 from backend.pipeline.members.schema import Member
 from backend.services.skill_normalization import normalize_skill_name
@@ -110,7 +116,9 @@ def check_explicit_constraints(task: AssignmentTask, member: Member) -> List[str
 
 
 def filter_candidates(
-    task: AssignmentTask, members: List[Member]
+    task: AssignmentTask,
+    members: List[Member],
+    ledger: Optional[AssignmentLedger] = None,
 ) -> Tuple[List[Member], List[CandidateRejection]]:
     """Step 1: ハード制約に違反するメンバーを除外し、(生存者, 除外者)を返す"""
     survivors: List[Member] = []
@@ -122,6 +130,8 @@ def filter_candidates(
             + check_availability(task, m)
             + check_workload(task, m)
             + check_explicit_constraints(task, m)
+            + check_cumulative_workload(task, m, ledger)
+            + check_deadline(task, m, ledger)
         )
         if reasons:
             rejections.append(CandidateRejection(member_id=m.id, reasons=reasons))

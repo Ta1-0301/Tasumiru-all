@@ -14,6 +14,9 @@ export interface ProjectCreateRequest {
   name?: string | null;
   // 仕様書本文（後から /generate 呼び出し時に渡すことも可能）
   document_text?: string | null;
+  // 計画の開始日・プロジェクトの納期（任意、YYYY-MM-DD）
+  start_date?: string | null;
+  due_date?: string | null;
 }
 
 export interface ProjectResponse {
@@ -22,6 +25,8 @@ export interface ProjectResponse {
   name: string | null;
   has_document: boolean;
   has_members: boolean;
+  start_date?: string | null;
+  due_date?: string | null;
   created_at: string;
   updated_at: string;
 }

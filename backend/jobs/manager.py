@@ -27,7 +27,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -40,6 +40,7 @@ from backend.jobs.timing import pipeline_stage, timed_client, timed_embedding_cl
 from backend.models.job import JobModel
 from backend.models.project import ProjectModel
 from backend.pipeline.assignment.audit import summarize_assignment_audit
+from backend.pipeline.assignment.deadline import AssignmentLedger
 from backend.pipeline.assignment.override import accept_recommendation
 from backend.pipeline.assignment.runner import run_assignment
 from backend.pipeline.assignment.schema import FinalAssignment
@@ -60,7 +61,6 @@ from backend.pipeline.validation.runner import (
     validate_project_plan,
     validate_project_plan_with_llm_verification,
 )
-from backend.services.concurrency import gather_with_concurrency, get_max_concurrency
 from backend.services.llm import get_llm_client
 from backend.services.rag.embeddings import get_embedding_client
 from backend.services.rag.index import build_spec_index
@@ -216,14 +216,22 @@ class JobManager:
             )
             dep_doc = await self._run_dependencies(job_id, task_doc, base_client)
             member_dir = await self._run_members(job_id, project)
+            # 納期考慮の基準日。プロジェクトの開始日が無ければジョブの実行日。
+            # 納期（プロジェクト/タスク）が1つも無ければ使われない（従来と同じ計算）。
+            reference_date = project.start_date or date.today()
             final_assignments = await self._run_assignments(
                 job_id, task_doc, dep_doc, member_dir, base_client, use_assignment_llm_reasoning,
+                project_due_date=project.due_date, reference_date=reference_date,
             )
             report = await self._run_validation(
                 job_id, req_doc, task_doc, dep_doc, member_dir, final_assignments, base_client,
                 use_duplicate_llm_verification,
+                project_due_date=project.due_date, reference_date=reference_date,
             )
-            await self._run_finalize(job_id, project, req_doc, task_doc, dep_doc, member_dir, final_assignments, report)
+            await self._run_finalize(
+                job_id, project, req_doc, task_doc, dep_doc, member_dir, final_assignments, report,
+                reference_date=reference_date,
+            )
         except Exception as e:  # noqa: BLE001 — ジョブを失敗として記録するために意図的に広く捕捉する
             logger.exception("[JOB] %s failed", job_id)
             code, message = classify_exception(e)
@@ -353,7 +361,10 @@ class JobManager:
                             message=STAGE_DONE_MESSAGES["members"], members_path=project.members_path)
         return member_dir
 
-    async def _run_assignments(self, job_id, task_doc, dep_doc, member_dir, base_client, use_llm_reasoning):
+    async def _run_assignments(
+        self, job_id, task_doc, dep_doc, member_dir, base_client, use_llm_reasoning,
+        project_due_date: Optional[date] = None, reference_date: Optional[date] = None,
+    ):
         await self._update(job_id, current_step="assignments", progress=STAGE_BOUNDS["assignments"][0],
                             message=STAGE_START_MESSAGES["assignments"])
         assignment_client = timed_client(base_client, "assignments") if use_llm_reasoning else None
@@ -366,22 +377,45 @@ class JobManager:
         with pipeline_stage("assignments"):
             # member_dir.membersはここで1回だけ読み込まれたリストを、タスクの数だけ
             # 再利用する（B: メンバー情報を毎回DBから読み直したりはしない）。
-            # Part 3: タスクごとのアサインは互いに独立している（前のタスクの結果を
-            # 参照しない）ため、requirements/tasks同様に安全に並列化できる。
-            # 既定値1（逐次実行のまま）・同じOLLAMA_MAX_CONCURRENCYで制御する。
-            async def _assign_one(task):
-                assignment_task = task_to_assignment_task(task, dep_doc.dependencies)
-                result = await run_assignment(
-                    assignment_task, member_dir.members, client=assignment_client,
-                    member_load_errors=member_load_errors,
-                )
-                return accept_recommendation(result)
+            assignment_tasks = [
+                task_to_assignment_task(task, dep_doc.dependencies, default_due_date=project_due_date)
+                for task in task_doc.tasks
+            ]
 
-            max_concurrency = get_max_concurrency()
-            final_assignments: List[FinalAssignment] = await gather_with_concurrency(
-                [(lambda t=task: _assign_one(t)) for task in task_doc.tasks],
-                max_concurrency,
+            # 負荷率100%以内・負荷の均一化・期限までの累積負荷は、いずれも前のタスクの
+            # 割当結果に依存するため、タスクを1件ずつ逐次実行し、割り当てた工数を
+            # 台帳(AssignmentLedger)に記録していく（以前はタスクごとに独立に並列実行して
+            # いたため、割当が特定のメンバーに累積しても検出できなかった）。
+            # 順序は期限の早い順（EDF。期限なしは最後、同じ期限は元の順）。
+            # 負荷の基準は、納期情報があれば計画期間（基準日〜最も遅い期限）、無ければ
+            # 従来通り1週間（Validation CHECK 4と同じ定義）。
+            # 結果はtask_doc.tasksと同じ順に並べて返す。
+            dues = [t.due_date for t in assignment_tasks if t.due_date]
+            use_period = reference_date is not None and bool(dues)
+            ledger = AssignmentLedger(
+                reference_date=reference_date if use_period else None,
+                period_end=max(dues) if use_period else None,
             )
+            order = sorted(
+                range(len(assignment_tasks)),
+                key=lambda i: (assignment_tasks[i].due_date or date.max, i),
+            )
+            results: List[Optional[FinalAssignment]] = [None] * len(assignment_tasks)
+            for i in order:
+                at = assignment_tasks[i]
+                # 以前のgather_with_concurrency（既定の同時実行数1）と同じく、各タスクの
+                # 割当を個別のasyncio.Taskとして実行する。LLM補足説明が無効な場合
+                # run_assignmentは一度も中断しないため、直接awaitすると割当ループの間
+                # イベントループへ制御が戻らず、ジョブ状態のポーリング等に応答できなくなる。
+                result = await asyncio.create_task(run_assignment(
+                    at, member_dir.members, client=assignment_client,
+                    member_load_errors=member_load_errors, ledger=ledger,
+                ))
+                fa = accept_recommendation(result)
+                if fa.assigned_member_id:
+                    ledger.commit(fa.assigned_member_id, at.estimated_hours, at.due_date)
+                results[i] = fa
+            final_assignments: List[FinalAssignment] = results  # type: ignore[assignment]
 
         path = self._save_assignments(job_id, final_assignments)
         audit_summary = summarize_assignment_audit(final_assignments)
@@ -395,7 +429,10 @@ class JobManager:
                             message=STAGE_DONE_MESSAGES["assignments"], assignments_path=str(path))
         return final_assignments
 
-    async def _run_validation(self, job_id, req_doc, task_doc, dep_doc, member_dir, final_assignments, base_client, use_llm_verification):
+    async def _run_validation(
+        self, job_id, req_doc, task_doc, dep_doc, member_dir, final_assignments, base_client, use_llm_verification,
+        project_due_date: Optional[date] = None, reference_date: Optional[date] = None,
+    ):
         await self._update(job_id, current_step="validation", progress=STAGE_BOUNDS["validation"][0],
                             message=STAGE_START_MESSAGES["validation"])
         assignments_map: Dict[str, str] = {
@@ -407,23 +444,30 @@ class JobManager:
                 report = await validate_project_plan_with_llm_verification(
                     req_doc.requirements, task_doc.tasks, dep_doc.dependencies, member_dir.members,
                     assignments_map, client=client, final_assignments=final_assignments,
+                    reference_date=reference_date, default_due_date=project_due_date,
                 )
             else:
                 report = validate_project_plan(
                     req_doc.requirements, task_doc.tasks, dep_doc.dependencies, member_dir.members, assignments_map,
                     final_assignments=final_assignments,
+                    reference_date=reference_date, default_due_date=project_due_date,
                 )
         path = save_validation_report(report, output_dir=self._resolve_output_dir(VALIDATION_OUTPUT_DIR, "validation"))
         await self._update(job_id, progress=STAGE_BOUNDS["validation"][1],
                             message=STAGE_DONE_MESSAGES["validation"], validation_path=str(path))
         return report
 
-    async def _run_finalize(self, job_id, project, req_doc, task_doc, dep_doc, member_dir, final_assignments, report):
+    async def _run_finalize(
+        self, job_id, project, req_doc, task_doc, dep_doc, member_dir, final_assignments, report,
+        reference_date: Optional[date] = None,
+    ):
         await self._update(job_id, current_step="finalize", progress=STAGE_BOUNDS["finalize"][0],
                             message=STAGE_START_MESSAGES["finalize"])
         with pipeline_stage("finalize"):
             output = assemble_final_output(
                 req_doc, task_doc, dep_doc, member_dir, final_assignments, report, project_name=project.name,
+                start_date=project.start_date, due_date=project.due_date,
+                planning_reference_date=reference_date,
             )
         path = save_final_output(output, output_dir=self._resolve_output_dir(FINAL_OUTPUT_DIR, "final_output"))
 

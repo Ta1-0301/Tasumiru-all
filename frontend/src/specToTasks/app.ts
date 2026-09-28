@@ -37,7 +37,7 @@ import type { PipelineMember } from "../types/pipeline";
 import {
   CAT_NOTE, LOAD_MAX, LOW_CONF, SKILL_MAX, WARN, WARN_BG, WARN_FG,
   aiScoreOf, buildModel, dependencyInfo, formatSkills, hoursOf, levelOf, missingSkills,
-  norm, parseSkills, pctOf, rejectedReasons, scoreOf, unassignedReason,
+  capLabel, norm, parseSkills, pctOf, rejectedReasons, scoreOf, unassignedReason,
 } from "./model";
 import type { Assignment, Model, VMember, VRequirement, VTask } from "./model";
 
@@ -112,6 +112,8 @@ interface State {
   fileNote: { kind: "ok" | "error"; text: string } | null;
   projectId: string | null;
   projectName: string;
+  /** プロジェクトの納期（任意、YYYY-MM-DD。空文字は未設定） */
+  projectDueDate: string;
   newProject: boolean;
   members: MemberDraft[];
   membersNote: string | null;
@@ -142,6 +144,7 @@ const state: State = {
   fileNote: null,
   projectId: null,
   projectName: "",
+  projectDueDate: "",
   newProject: false,
   members: [],
   membersNote: null,
@@ -589,6 +592,8 @@ function step2(): string {
         ${state.projectId ? `<label class="radio"><input type="radio" name="proj" value="current" ${!state.newProject ? "checked" : ""}><span class="dot"></span>現在のプロジェクト：${esc(state.projectName || "無題")}</label>
         <label class="radio"><input type="radio" name="proj" value="new" ${state.newProject ? "checked" : ""}><span class="dot"></span>新しいプロジェクトを作成</label>` : ""}
         ${!state.projectId || state.newProject ? `<input class="input" style="${inputCss}" data-bind="projectName" value="${esc(state.projectName)}" placeholder="プロジェクト名（例：ECサイト リニューアル）">` : ""}
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--color-neutral-700)">納期（任意）<input class="input" style="${inputCss};max-width:180px" data-bind="projectDueDate" type="date" value="${esc(state.projectDueDate)}"></label>
+        <div style="font-size:11.5px;color:var(--color-neutral-600)">設定すると、負荷を納期までの稼働可能時間で計算し、期限内に終わらない担当候補を除外します。</div>
       </div>`)}
       ${row("割当対象チーム", `<div style="display:flex;flex-direction:column;gap:8px">
         <div style="display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 64px 64px 28px;gap:6px;font-size:11px;color:var(--color-neutral-600)"><span>氏名</span><span>スキル:レベル(1〜5)</span><span>稼働h/週</span><span>既存h</span><span></span></div>
@@ -782,7 +787,7 @@ function step7(M: Model): string {
   const v = state.variant[7];
   const capLine = (top: number) => `<div style="position:absolute;top:-${top}px;bottom:-${top}px;left:80%;width:1px;background:var(--color-text)"></div>`;
   const sortedSkills = (m: VMember) => Object.keys(m.sk).sort((x, y) => m.sk[y] - m.sk[x]);
-  const legend = `<div style="display:flex;gap:18px;padding:12px 8px;border-top:1px solid var(--color-divider);font-size:11.5px;color:var(--color-neutral-700);flex-wrap:wrap"><span>数字 = スキルレベル（1〜5）</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-neutral-300)"></i>既存業務</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-accent)"></i>今回の割当</span><span>縦線 = 稼働上限（週あたり稼働可能時間）</span></div>`;
+  const legend = `<div style="display:flex;gap:18px;padding:12px 8px;border-top:1px solid var(--color-divider);font-size:11.5px;color:var(--color-neutral-700);flex-wrap:wrap"><span>数字 = スキルレベル（1〜5）</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-neutral-300)"></i>既存業務</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-accent)"></i>今回の割当</span><span>縦線 = 稼働上限（${esc(capLabel(M))}）</span></div>`;
 
   if (v === 0) {
     const sk = M.skillCols;
@@ -1187,6 +1192,7 @@ async function loadProjectAndMembers(): Promise<void> {
     const p = await getProject(pid);
     state.projectId = p.id;
     state.projectName = p.name ?? "";
+    state.projectDueDate = p.due_date ?? "";
     const dir = await fetchProjectMembers(p.id);
     state.members = dir.members.map(toDraft);
     state.membersNote = dir.members.length ? `プロジェクトに登録済みのメンバー ${dir.members.length}名を読み込みました。` : null;
@@ -1206,7 +1212,7 @@ async function startAnalysis(): Promise<void> {
   try {
     let projectId = state.projectId;
     if (!projectId || state.newProject) {
-      const p = await createProject({ name: state.projectName.trim() || null });
+      const p = await createProject({ name: state.projectName.trim() || null, due_date: state.projectDueDate || null });
       projectId = p.id;
       state.projectId = p.id;
       state.projectName = p.name ?? "";
@@ -1218,6 +1224,7 @@ async function startAnalysis(): Promise<void> {
       document_text: text,
       use_assignment_llm_reasoning: state.optLlmReason,
       use_duplicate_llm_verification: state.optDupLlm,
+      due_date: state.projectDueDate || null,
     });
     LS.set(docKey(job_id), JSON.stringify({ text: state.docText, fileName: state.fileName }));
     jobStartedAt = Date.now();
@@ -1450,6 +1457,8 @@ function bindEvents(): void {
       saveDraft();
     } else if (t.dataset.bind === "projectName") {
       state.projectName = t.value;
+    } else if (t.dataset.bind === "projectDueDate") {
+      state.projectDueDate = t.value;
     } else if (t.dataset.mi != null) {
       const m = state.members[Number(t.dataset.mi)];
       if (!m) return;

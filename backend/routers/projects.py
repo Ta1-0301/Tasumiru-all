@@ -40,6 +40,8 @@ def _to_project_response(project: ProjectModel) -> ProjectResponse:
         name=project.name,
         has_document=bool(project.document_text and project.document_text.strip()),
         has_members=bool(project.members_path),
+        start_date=project.start_date,
+        due_date=project.due_date,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -64,7 +66,10 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     """プロジェクトを作成する（チームに紐づく）"""
-    project = ProjectModel(team_id=member.team_id, name=body.name, document_text=body.document_text)
+    project = ProjectModel(
+        team_id=member.team_id, name=body.name, document_text=body.document_text,
+        start_date=body.start_date, due_date=body.due_date,
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -136,8 +141,15 @@ async def generate_project(
     """
     project = await _get_authorized_project(project_id, member, db)
 
-    if body.document_text is not None:
-        project.document_text = body.document_text
+    updates = {
+        "document_text": body.document_text,
+        "start_date": body.start_date,
+        "due_date": body.due_date,
+    }
+    updates = {k: v for k, v in updates.items() if v is not None}
+    if updates:
+        for key, value in updates.items():
+            setattr(project, key, value)
         await db.commit()
 
     if not project.document_text or not project.document_text.strip():

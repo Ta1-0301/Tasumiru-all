@@ -1,4 +1,5 @@
 # backend/db/session.py
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import settings
@@ -21,10 +22,29 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+# create_allは既存テーブルに列を追加しないため、後から追加したnullable列だけを
+# ここで補う（Alembic導入までの最小限の措置。既存の列・データは変更しない）。
+_ADDED_NULLABLE_COLUMNS = {
+    "projects": {"start_date": "DATE", "due_date": "DATE"},
+}
+
+
+def _add_missing_columns(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    for table, columns in _ADDED_NULLABLE_COLUMNS.items():
+        if not inspector.has_table(table):
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        for name, sql_type in columns.items():
+            if name not in existing:
+                sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+
+
 async def init_db() -> None:
     """テーブルが存在しなければ作成する（開発用。本番はAlembicマイグレーションに移行予定）"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
 
 
 async def get_db():

@@ -10,9 +10,9 @@ Phase 10: チームが所有する「プロジェクト」(仕様書 + 確定済
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import Date, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
@@ -42,6 +42,11 @@ class ProjectModel(Base):
     # メンバーのスキルレベルはここでも一切生成しない — 既存のPhase 6の
     # 取り込みロジックをそのまま経由してのみ設定される。
     members_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # 納期考慮（任意）。どちらも未設定なら従来と同じ週ベースの計算になる。
+    # start_date未設定時は、生成ジョブの実行日を計画の基準日とする。
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(

@@ -20,6 +20,7 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.pipeline.assignment.deadline import AssignmentLedger, check_cumulative_workload, check_deadline
 from backend.pipeline.assignment.filters import (
     check_availability,
     check_explicit_constraints,
@@ -51,6 +52,7 @@ UnassignedReason = Literal[
     "NO_REQUIRED_SKILL",
     "NO_AVAILABILITY",
     "WORKLOAD_TOO_HIGH",
+    "DEADLINE_INFEASIBLE",
     "INVALID_MEMBER_DATA",
     "UNKNOWN",
 ]
@@ -61,11 +63,14 @@ _REASON_PRIORITY: List[str] = [
     "NO_REQUIRED_SKILL",
     "NO_AVAILABILITY",
     "WORKLOAD_TOO_HIGH",
+    "DEADLINE_INFEASIBLE",
     "HARD_CONSTRAINT",
 ]
 
 
-def classify_member_rejection(task: AssignmentTask, member: Member) -> List[str]:
+def classify_member_rejection(
+    task: AssignmentTask, member: Member, ledger: Optional[AssignmentLedger] = None,
+) -> List[str]:
     """1候補者がハード制約のどのチェックで除外されたかをコード化する。
 
     `filters.py`の各チェック関数をそのまま個別に呼ぶだけで、判定ロジック
@@ -76,10 +81,12 @@ def classify_member_rejection(task: AssignmentTask, member: Member) -> List[str]
         codes.append("NO_REQUIRED_SKILL")
     if check_availability(task, member):
         codes.append("NO_AVAILABILITY")
-    if check_workload(task, member):
+    if check_workload(task, member) or check_cumulative_workload(task, member, ledger):
         codes.append("WORKLOAD_TOO_HIGH")
     if check_explicit_constraints(task, member):
         codes.append("HARD_CONSTRAINT")
+    if check_deadline(task, member, ledger):
+        codes.append("DEADLINE_INFEASIBLE")
     return codes
 
 
@@ -89,6 +96,7 @@ def determine_unassigned_reason(
     rejected_candidates: List[CandidateRejection],
     *,
     member_load_errors: bool = False,
+    ledger: Optional[AssignmentLedger] = None,
 ) -> str:
     """未割当タスク1件の代表理由を1つ決める。
 
@@ -116,7 +124,7 @@ def determine_unassigned_reason(
             member = member_by_id.get(rejection.member_id)
             if member is None:
                 continue
-            for code in classify_member_rejection(task, member):
+            for code in classify_member_rejection(task, member, ledger):
                 tally[code] += 1
 
         if not tally:
@@ -139,11 +147,12 @@ def find_fallback_candidate(
     members: List[Member],
     rejected_candidates: List[CandidateRejection],
     weights: Optional[ScoringWeights] = None,
+    ledger: Optional[AssignmentLedger] = None,
 ) -> Optional[CandidateScore]:
     """ハード制約で拒否された候補の中から、Fallback候補を1人だけ探す。
 
     対象になるのは「NO_REQUIRED_SKILLだけ」で拒否された候補に限る
-    ——availability/workload/explicit constraintのいずれかで拒否された
+    ——availability/workload/explicit constraint/deadlineのいずれかで拒否された
     候補は、その制約が満たせていないという事実自体は変わらないため、
     絶対にFallback対象にしない。
 
@@ -151,15 +160,27 @@ def find_fallback_candidate(
     そのまま呼ぶだけで、新しい類似度計算は行わない。閾値
     (`FALLBACK_SKILL_SIMILARITY_THRESHOLD`)を超える候補が無ければNoneを返す
     （＝Fallbackも見つからずUNASSIGNEDのまま）。
+
+    必要スキルを持つメンバーが存在し、そのメンバーが負荷・納期などスキル以外の
+    ハード制約だけで除外された場合も、Fallbackは探さない（Noneを返す）。
+    Fallbackは「必要スキルを持つ人がいない」ときの救済であり、スキルを持つ人が
+    空いていないときに別スキルの人へ回すためのものではないため。
     """
     member_by_id = {m.id: m for m in members}
+    codes_by_member = {
+        r.member_id: classify_member_rejection(task, member_by_id[r.member_id], ledger)
+        for r in rejected_candidates if r.member_id in member_by_id
+    }
+    if any(codes and "NO_REQUIRED_SKILL" not in codes for codes in codes_by_member.values()):
+        return None
+
     best: Optional[CandidateScore] = None
 
     for rejection in rejected_candidates:
         member = member_by_id.get(rejection.member_id)
         if member is None:
             continue
-        if classify_member_rejection(task, member) != ["NO_REQUIRED_SKILL"]:
+        if codes_by_member[rejection.member_id] != ["NO_REQUIRED_SKILL"]:
             continue
 
         candidate_score = score_candidate(task, member, weights)

@@ -24,6 +24,9 @@ export interface GenerateRequest {
   use_assignment_llm_reasoning?: boolean;
   // Phase 8 CHECK 2の重複候補のLLM検証。既定オフ。
   use_duplicate_llm_verification?: boolean;
+  // 指定した場合、生成前にプロジェクトの開始日・納期を更新する（YYYY-MM-DD）。
+  start_date?: string | null;
+  due_date?: string | null;
 }
 
 export interface GenerateResponse {
