@@ -89,7 +89,7 @@ JobManagerはタスクを1件ずつ逐次割り当て、割り当てた工数を
 - 期限までの稼働可能時間 = 週あたり稼働可能時間 / 週の稼働日数 × 基準日〜期限の稼働日数
   （両端を含む。基準日は`ProjectModel.start_date`、未設定ならジョブ実行日）。
   Assignmentの判定では`current_assigned_hours`を差し引き、`max_hours_per_week`で頭打ちにする。
-- JobManagerは期限の早い順に逐次割り当て、割り当てた工数を`DeadlineContext`に記録する。
+- JobManagerは期限の早い順に逐次割り当て、割り当てた工数を`AssignmentLedger`に記録する。
   「各期限dまでの累積工数 <= 期限dまでの稼働可能時間」を満たせない候補はハード制約として
   除外され（`DEADLINE_INFEASIBLE`）、Fallback候補にもならない。既存の4チェックは変更しない。
 - Validation(CHECK 4)は分子（割当タスクの見積り合計）を変えず、分母を計画期間

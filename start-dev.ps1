@@ -71,8 +71,19 @@ if (-not $installed) {
 # 3. フロントエンド（Vite dev server）を別ウィンドウで起動
 if (-not $NoFrontend) {
     if (Test-Path (Join-Path $FrontendDir "package.json")) {
-        Write-Host "[frontend] npm run dev を別ウィンドウで起動します -> http://localhost:5173"
-        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-Command", "cd '$FrontendDir'; npm run dev"
+        # バックエンドより先に Vite が起動すると、起動直後の /api/me などが
+        # プロキシで ECONNREFUSED になるため、/healthz が応答するまで待ってから起動する。
+        $HealthUrl = "http://127.0.0.1:$Port/healthz"
+        $FrontendCmd = (
+            "cd '$FrontendDir'",
+            "Write-Host '[frontend] バックエンド ($HealthUrl) の起動を待っています...'",
+            "`$ready = `$false",
+            "for (`$i = 0; `$i -lt 120; `$i++) { try { Invoke-WebRequest -Uri '$HealthUrl' -UseBasicParsing -TimeoutSec 2 | Out-Null; `$ready = `$true; break } catch { Start-Sleep -Seconds 1 } }",
+            "if (-not `$ready) { Write-Warning '[frontend] バックエンドの起動を確認できませんでしたが、Vite を起動します。' }",
+            "npm run dev"
+        ) -join "; "
+        Write-Host "[frontend] バックエンド起動後に npm run dev を別ウィンドウで起動します -> http://localhost:5173"
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-Command", $FrontendCmd
     } else {
         Write-Host "[frontend] frontend/package.json が見つからないためスキップします。"
     }

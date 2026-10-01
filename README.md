@@ -140,8 +140,10 @@ npm run dev
 ## テスト
 
 ```bash
-uv run pytest backend/tests -q
+uv run python -m pytest backend/tests -q
 ```
+
+`python -m pytest` の形で実行してください（`uv run pytest ...` だとリポジトリのルートが import パスに入らず、`ModuleNotFoundError: No module named 'backend'` になります）。
 
 実際の LLM は呼び出さず、テスト用の偽のクライアントで実行します（Ollama の起動は不要です）。
 

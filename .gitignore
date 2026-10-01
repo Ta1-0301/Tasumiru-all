@@ -38,3 +38,14 @@ frontend/dist/
 .DS_Store
 .claude/
 .vscode/
+Thumbs.db
+desktop.ini
+.idea/
+
+# 一時ファイル・バックアップ・カバレッジ
+*.tmp
+*.bak
+*.old
+coverage/
+htmlcov/
+.coverage

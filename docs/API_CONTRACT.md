@@ -12,9 +12,16 @@ diverge, that divergence is called out explicitly rather than smoothed over.
 The generated OpenAPI document is saved at [`docs/openapi.json`](openapi.json)
 (produced by `app.openapi()`, not hand-written — see §13).
 
+> **Note (2026-10-01):** commit 14f6c2f added optional `start_date` / `due_date`
+> to `ProjectCreateRequest`, `ProjectResponse` and `GenerateRequest`, `due_date`
+> to `Task`, `start_date` / `due_date` / `planning_reference_date` to the final
+> output's `ProjectInfo`, and `basis` / `weekly_available_hours` / `period_start` /
+> `period_end` to `WorkloadSummary`. These are not yet described in the prose
+> below; `docs/openapi.json` has been regenerated and is authoritative for them.
+
 ## 0. The single most important fact for the frontend team
 
-**Four routers are mounted on the FastAPI app**, confirmed by reading
+**Five routers are mounted on the FastAPI app** (the documents router was added after this section was first written; see §3.10), confirmed by reading
 `backend/main.py` and by grepping the whole `backend/` tree for
 `include_router`/`APIRouter(`:
 
@@ -23,6 +30,7 @@ app.include_router(tasks.router)      # backend/routers/tasks.py     — prefix 
 app.include_router(auth_router)       # backend/auth/router.py       — prefix /api
 app.include_router(projects.router)   # backend/routers/projects.py  — prefix /api  (Phase 10, NEW)
 app.include_router(jobs.router)       # backend/routers/jobs.py      — prefix /api  (Phase 10, NEW)
+app.include_router(documents.router)  # backend/routers/documents.py — prefix /api  (POST /api/documents/parse)
 ```
 
 As of Phase 9, the **Requirements → Tasks → Dependencies → Members →

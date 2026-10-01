@@ -271,6 +271,14 @@ deterministic, no LLM):
   threshold, the original top scorer is kept and a warning notes the
   overload — assignment is never silently blocked, matching Part 11's
   "still allow assignment if necessary."
+  **Superseded for the job pipeline (commit 14f6c2f):** `JobManager` now passes
+  an `AssignmentLedger`, so candidates whose cumulative load would exceed 100%
+  (or who cannot finish by the deadline) are excluded as hard constraints
+  (`WORKLOAD_TOO_HIGH` / `DEADLINE_INFEASIBLE`) and the task may be left
+  unassigned; among the rest, `_select_balanced_candidate` prefers ≤80% and the
+  lowest projected load among skill-comparable candidates. The behaviour above
+  remains only for the ledger-less path (`select_recommended_candidate` without
+  a ledger, e.g. the CLI runner). See `backend/pipeline/assignment/README.md`.
 
 Critically, this function **never reorders or rewrites `candidate_scores`
 itself** — the full, pure, decision-transparent ranking is still returned

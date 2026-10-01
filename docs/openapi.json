@@ -1762,6 +1762,32 @@
             "title": "Use Duplicate Llm Verification",
             "description": "Phase 8 CHECK 2の重複候補についてLLM検証を行うか（既定オフ）",
             "default": false
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date",
+            "description": "指定した場合、生成前にプロジェクトの開始日を更新する"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date",
+            "description": "指定した場合、生成前にプロジェクトの納期を更新する"
           }
         },
         "type": "object",
@@ -2168,6 +2194,32 @@
             ],
             "title": "Document Text",
             "description": "仕様書本文（後から/generate時に渡すことも可能）"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date",
+            "description": "計画の開始日（任意。未設定なら生成ジョブの実行日）"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date",
+            "description": "プロジェクトの納期（任意。期限の無いタスクに適用される）"
           }
         },
         "type": "object",
@@ -2200,6 +2252,42 @@
               }
             ],
             "title": "Exported At"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "planning_reference_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Reference Date"
           }
         },
         "type": "object",
@@ -2344,6 +2432,30 @@
           "has_members": {
             "type": "boolean",
             "title": "Has Members"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
           },
           "created_at": {
             "type": "string",
@@ -2873,6 +2985,19 @@
             },
             "type": "array",
             "title": "Review Reasons"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date",
+            "description": "タスクの期限（YYYY-MM-DD、任意）"
           }
         },
         "type": "object",
@@ -3517,6 +3642,50 @@
           "workload_percentage": {
             "type": "number",
             "title": "Workload Percentage"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "period"
+            ],
+            "title": "Basis",
+            "default": "weekly"
+          },
+          "weekly_available_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Available Hours"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
           }
         },
         "type": "object",
