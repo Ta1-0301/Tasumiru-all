@@ -1,6 +1,5 @@
 /* Industry — design-system tokens and component classes.
-   claude.ai/design の「Spec to Tasks」プロジェクトから取り込んだもの
-   (_ds/industry-5694f6f3-3900-4b40-b27e-e82d6dc4a3ee/styles.css)。
+   デザイン案「Spec to Tasks」から取り込んだもの。
    見た目の調整はここではなく spec-to-tasks.css のページ上書きで行う。 */
 @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700&family=Barlow+Condensed:wght@400;600&display=swap');
 

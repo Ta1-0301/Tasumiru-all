@@ -36,7 +36,6 @@ frontend/dist/
 
 # OS / エディタ / ツール固有
 .DS_Store
-.claude/
 .vscode/
 Thumbs.db
 desktop.ini
@@ -49,3 +48,8 @@ desktop.ini
 coverage/
 htmlcov/
 .coverage
+
+# 提出用リポジトリには含めないドキュメント（ローカルには残す）
+/docs/
+/*.md
+!/README.md

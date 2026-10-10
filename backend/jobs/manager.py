@@ -29,31 +29,55 @@ import logging
 import os
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.session import AsyncSessionLocal
-from backend.jobs.adapters import task_to_assignment_task
 from backend.jobs.errors import classify_exception
 from backend.jobs.timing import pipeline_stage, timed_client, timed_embedding_client
+from backend.jobs.updates import (
+    ItemRef,
+    ReassignScope,
+    UpdateMode,
+    UpdateSummary,
+    assign_tasks,
+    chunk_key,
+    current_assignments,
+    mark_removal_candidate,
+    match_items,
+    next_id,
+    plan_chunks,
+    save_update_summary,
+    select_preserved,
+    summarize_assignments,
+)
 from backend.models.job import JobModel
 from backend.models.project import ProjectModel
 from backend.pipeline.assignment.audit import summarize_assignment_audit
-from backend.pipeline.assignment.deadline import AssignmentLedger
-from backend.pipeline.assignment.override import accept_recommendation
-from backend.pipeline.assignment.runner import run_assignment
 from backend.pipeline.assignment.schema import FinalAssignment
+from backend.pipeline.dependencies.graph import DependencyGraph
 from backend.pipeline.dependencies.runner import OUTPUT_DIR as DEPENDENCIES_OUTPUT_DIR
 from backend.pipeline.dependencies.runner import run_dependency_pipeline, save_dependencies_document
+from backend.pipeline.dependencies.schema import DependencyDocument
+from backend.pipeline.dependencies.validator import validate_dependencies
 from backend.pipeline.final_output.assembler import assemble_final_output
 from backend.pipeline.final_output.runner import OUTPUT_DIR as FINAL_OUTPUT_DIR
 from backend.pipeline.final_output.runner import save_final_output
 from backend.pipeline.members.runner import load_member_directory
 from backend.pipeline.requirements.runner import OUTPUT_DIR as REQUIREMENTS_OUTPUT_DIR
+from backend.pipeline.requirements.extractor import extract_requirements_from_chunk
 from backend.pipeline.requirements.runner import run_requirements_pipeline, save_requirements_document
+from backend.pipeline.requirements.schema import Requirement, RequirementDocument
+from backend.pipeline.requirements.schema import ValidationIssue as RequirementIssue
+from backend.pipeline.requirements.validator import validate_requirements
 from backend.pipeline.tasks.runner import OUTPUT_DIR as TASKS_OUTPUT_DIR
+from backend.pipeline.tasks.decomposer import decompose_requirement
 from backend.pipeline.tasks.runner import run_task_decomposition_pipeline, save_tasks_document
+from backend.pipeline.tasks.schema import Task, TaskDocument
+from backend.pipeline.tasks.schema import ValidationIssue as TaskIssue
+from backend.pipeline.tasks.skill_evaluation import check_task_skill_consistency
+from backend.pipeline.tasks.validator import apply_review_flags, validate_tasks
 from backend.pipeline.tasks.skill_vocabulary import build_team_skill_vocabulary
 from backend.pipeline.validation.runner import OUTPUT_DIR as VALIDATION_OUTPUT_DIR
 from backend.pipeline.validation.runner import (
@@ -61,7 +85,9 @@ from backend.pipeline.validation.runner import (
     validate_project_plan,
     validate_project_plan_with_llm_verification,
 )
+from backend.services.concurrency import gather_with_concurrency, get_max_concurrency
 from backend.services.llm import get_llm_client
+from backend.services.pipeline.structure import decompose_document
 from backend.services.rag.embeddings import get_embedding_client
 from backend.services.rag.index import build_spec_index
 from backend.services.rag.schema import SpecIndex
@@ -364,58 +390,22 @@ class JobManager:
     async def _run_assignments(
         self, job_id, task_doc, dep_doc, member_dir, base_client, use_llm_reasoning,
         project_due_date: Optional[date] = None, reference_date: Optional[date] = None,
+        preserved: Optional[Dict[str, FinalAssignment]] = None,
     ):
         await self._update(job_id, current_step="assignments", progress=STAGE_BOUNDS["assignments"][0],
                             message=STAGE_START_MESSAGES["assignments"])
         assignment_client = timed_client(base_client, "assignments") if use_llm_reasoning else None
 
-        # Assignment Audit用: メンバーディレクトリの読み込み時に無効なレコードが
-        # あったかどうか（LOAD_ERROR）を、未割当理由の分類に使う。判定ロジック
-        # 自体（filters.py/scoring.py/workload_balancing.py）には影響しない。
-        member_load_errors = any(issue.code == "LOAD_ERROR" for issue in member_dir.issues)
-
         with pipeline_stage("assignments"):
-            # member_dir.membersはここで1回だけ読み込まれたリストを、タスクの数だけ
-            # 再利用する（B: メンバー情報を毎回DBから読み直したりはしない）。
-            assignment_tasks = [
-                task_to_assignment_task(task, dep_doc.dependencies, default_due_date=project_due_date)
-                for task in task_doc.tasks
-            ]
-
             # 負荷率100%以内・負荷の均一化・期限までの累積負荷は、いずれも前のタスクの
-            # 割当結果に依存するため、タスクを1件ずつ逐次実行し、割り当てた工数を
-            # 台帳(AssignmentLedger)に記録していく（以前はタスクごとに独立に並列実行して
-            # いたため、割当が特定のメンバーに累積しても検出できなかった）。
-            # 順序は期限の早い順（EDF。期限なしは最後、同じ期限は元の順）。
-            # 負荷の基準は、納期情報があれば計画期間（基準日〜最も遅い期限）、無ければ
-            # 従来通り1週間（Validation CHECK 4と同じ定義）。
-            # 結果はtask_doc.tasksと同じ順に並べて返す。
-            dues = [t.due_date for t in assignment_tasks if t.due_date]
-            use_period = reference_date is not None and bool(dues)
-            ledger = AssignmentLedger(
-                reference_date=reference_date if use_period else None,
-                period_end=max(dues) if use_period else None,
+            # 割当結果に依存するため、タスクを期限の早い順（EDF）に1件ずつ逐次実行し、
+            # 割り当てた工数を台帳(AssignmentLedger)に記録していく（updates.assign_tasks）。
+            # `preserved`（更新時に維持する既存の割り当て）が無ければ初回生成の処理そのもの。
+            final_assignments = await assign_tasks(
+                task_doc, dep_doc, member_dir, client=assignment_client,
+                project_due_date=project_due_date, reference_date=reference_date,
+                preserved=preserved,
             )
-            order = sorted(
-                range(len(assignment_tasks)),
-                key=lambda i: (assignment_tasks[i].due_date or date.max, i),
-            )
-            results: List[Optional[FinalAssignment]] = [None] * len(assignment_tasks)
-            for i in order:
-                at = assignment_tasks[i]
-                # 以前のgather_with_concurrency（既定の同時実行数1）と同じく、各タスクの
-                # 割当を個別のasyncio.Taskとして実行する。LLM補足説明が無効な場合
-                # run_assignmentは一度も中断しないため、直接awaitすると割当ループの間
-                # イベントループへ制御が戻らず、ジョブ状態のポーリング等に応答できなくなる。
-                result = await asyncio.create_task(run_assignment(
-                    at, member_dir.members, client=assignment_client,
-                    member_load_errors=member_load_errors, ledger=ledger,
-                ))
-                fa = accept_recommendation(result)
-                if fa.assigned_member_id:
-                    ledger.commit(fa.assigned_member_id, at.estimated_hours, at.due_date)
-                results[i] = fa
-            final_assignments: List[FinalAssignment] = results  # type: ignore[assignment]
 
         path = self._save_assignments(job_id, final_assignments)
         audit_summary = summarize_assignment_audit(final_assignments)
@@ -475,6 +465,304 @@ class JobManager:
             job_id, status="completed", completed_at=datetime.now(timezone.utc),
             progress=100, message=STAGE_DONE_MESSAGES["finalize"], result_path=str(path),
         )
+
+    # --- 更新（初回生成の結果を再利用して、メンバー変更・仕様変更を反映する） ---
+
+    def update_summary_path(self, job_id: str) -> Path:
+        return self._resolve_output_dir(JOB_OUTPUT_DIR, "updates") / f"{job_id}.update.json"
+
+    def schedule_update(self, job_id: str, source_job_id: str, mode: UpdateMode, **kwargs) -> None:
+        """更新ジョブをバックグラウンドで開始する（`schedule`と同じく即座に戻る）"""
+        task = asyncio.create_task(self.run_update_job(job_id, source_job_id, mode, **kwargs))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def run_update_job(
+        self,
+        job_id: str,
+        source_job_id: str,
+        mode: UpdateMode,
+        *,
+        reassign_scope: ReassignScope = "unassigned",
+        task_ids: Sequence[str] = (),
+        client_overrides: Optional[Dict[str, Optional[str]]] = None,
+        old_document_text: Optional[str] = None,
+    ) -> None:
+        """完了済みのジョブ(`source_job_id`)の結果を再利用して、新しいジョブとして更新する。
+
+        - mode="members": 要件・タスク・依存関係をそのまま再利用し（LLM不使用）、
+          現在のメンバー情報で割り当て・検証だけをやり直す。
+        - mode="spec": 仕様書の区画を比較し、変更・追加された区画だけ要件抽出と
+          タスク分解をやり直す。変わらない区画の要件・タスクはIDごと再利用する。
+        どちらも、既存タスクの担当者は`reassign_scope`で明示されない限り変更しない。
+        元のジョブの結果ファイルは読むだけで、書き換えない。
+        """
+        project = await self._load_project_for_job(job_id)
+        if project is None:
+            return
+        if not project.members_path:
+            await self._fail(job_id, "MEMBERS_NOT_CONFIGURED", "プロジェクトにメンバー情報が設定されていません。")
+            return
+        try:
+            req_doc, task_doc, dep_doc, source_assignments = await self._load_source_documents(source_job_id)
+        except (OSError, ValueError) as e:
+            await self._fail(job_id, "SOURCE_NOT_AVAILABLE", f"更新元の分析結果を読み込めませんでした: {e}")
+            return
+
+        await self._update(job_id, status="running", started_at=datetime.now(timezone.utc))
+        summary = UpdateSummary(mode=mode, source_job_id=source_job_id, reassign_scope=reassign_scope)
+        try:
+            current = current_assignments(source_assignments, client_overrides)
+            before: Dict[str, Optional[str]] = {a.task_id: a.assigned_member_id for a in source_assignments}
+            before.update({tid: fa.assigned_member_id for tid, fa in current.items()})
+
+            if mode == "spec":
+                base_client = resolve_llm_client()
+                req_doc, task_doc, dep_doc = await self._run_spec_update(
+                    job_id, project, req_doc, task_doc, dep_doc, base_client, old_document_text, summary,
+                )
+            else:
+                summary.requirements_unchanged = len(req_doc.requirements)
+                summary.tasks_unchanged = len(task_doc.tasks)
+                source = await self._get_job(source_job_id)
+                await self._update(
+                    job_id, current_step="dependencies", progress=STAGE_BOUNDS["dependencies"][1],
+                    message="前回の要件・タスク・依存関係を再利用しました（要件抽出・タスク分解は再実行していません）。",
+                    requirements_path=source.requirements_path, tasks_path=source.tasks_path,
+                    dependencies_path=source.dependencies_path,
+                )
+
+            member_dir = await self._run_members(job_id, project)
+            task_id_set = {t.id for t in task_doc.tasks}
+            preserved = {
+                tid: fa for tid, fa in select_preserved(current, reassign_scope, task_ids).items()
+                if tid in task_id_set
+            }
+            reference_date = project.start_date or date.today()
+            final_assignments = await self._run_assignments(
+                job_id, task_doc, dep_doc, member_dir, None, False,
+                project_due_date=project.due_date, reference_date=reference_date, preserved=preserved,
+            )
+            summarize_assignments(summary, before, final_assignments)
+            report = await self._run_validation(
+                job_id, req_doc, task_doc, dep_doc, member_dir, final_assignments, None, False,
+                project_due_date=project.due_date, reference_date=reference_date,
+            )
+            save_update_summary(summary, self.update_summary_path(job_id))
+            await self._run_finalize(
+                job_id, project, req_doc, task_doc, dep_doc, member_dir, final_assignments, report,
+                reference_date=reference_date,
+            )
+        except Exception as e:  # noqa: BLE001 — 初回生成と同じく、ジョブを失敗として記録する
+            logger.exception("[JOB] update %s failed", job_id)
+            code, message = classify_exception(e)
+            await self._fail(job_id, code, message)
+
+    async def _get_job(self, job_id: str) -> JobModel:
+        async with self._session_factory() as db:
+            job = await db.get(JobModel, job_id)
+        if job is None:
+            raise ValueError(f"ジョブ {job_id} が見つかりません")
+        return job
+
+    async def _load_source_documents(self, source_job_id: str):
+        source = await self._get_job(source_job_id)
+        paths = [source.requirements_path, source.tasks_path, source.dependencies_path, source.assignments_path]
+        if source.status != "completed":
+            raise ValueError(f"ジョブ {source_job_id} は完了していません（状態: {source.status}）")
+        if not all(paths):
+            raise ValueError(f"ジョブ {source_job_id} の結果ファイルの記録が不足しています")
+
+        def read(path: str):
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+
+        return (
+            RequirementDocument.model_validate(read(source.requirements_path)),
+            TaskDocument.model_validate(read(source.tasks_path)),
+            DependencyDocument.model_validate(read(source.dependencies_path)),
+            [FinalAssignment.model_validate(a) for a in read(source.assignments_path)],
+        )
+
+    async def _run_spec_update(
+        self, job_id, project, req_doc, task_doc, dep_doc, base_client, old_text, summary: UpdateSummary,
+    ):
+        """仕様変更: 変更・追加された区画だけ要件抽出→タスク分解をやり直し、残りは再利用する。"""
+        new_text = project.document_text or ""
+        await self._update(job_id, current_step="requirements", progress=STAGE_BOUNDS["requirements"][0],
+                            message="前回の解析結果と仕様書を比較し、変更された部分だけ要求を抽出しています...")
+        old_reqs = req_doc.requirements
+        old_by_src: Dict[str, List[Requirement]] = {}
+        for r in old_reqs:
+            if r.source_reference and r.source_reference.source_text:
+                old_by_src.setdefault(chunk_key(r.source_reference.source_text), []).append(r)
+
+        with pipeline_stage("requirements"):
+            plan = plan_chunks(old_reqs, old_text, new_text)
+            chunks = plan.analyzed_chunks()
+            paired_old = {chunk_key(c.text): chunk_key(old) for old, c in plan.changed}
+            client = timed_client(base_client, "requirements")
+            results = await gather_with_concurrency(
+                [(lambda c=c: extract_requirements_from_chunk(c, client, req_doc.document_id)) for c in chunks],
+                get_max_concurrency(),
+            )
+        summary.llm_requirement_calls = len(chunks)
+
+        next_req = next_id("REQ", [r.id for r in old_reqs])
+        reused_req_ids: set = set()
+        new_reqs_by_chunk: Dict[str, List[Requirement]] = {}
+        extraction_errors: List[str] = []
+        for chunk, (candidates, error) in zip(chunks, results):
+            if error:
+                extraction_errors.append(error)
+            old_pool = old_by_src.get(paired_old.get(chunk_key(chunk.text), ""), [])
+            mapping = match_items(
+                [f"{c.title} {c.description}" for c in candidates],
+                [(r.id, f"{r.title} {r.description}") for r in old_pool],
+            )
+            made: List[Requirement] = []
+            for i, c in enumerate(candidates):
+                rid = mapping.get(i)
+                if rid:
+                    reused_req_ids.add(rid)
+                    summary.requirements_changed.append(ItemRef(id=rid, title=c.title))
+                else:
+                    rid = f"REQ-{next_req:03d}"
+                    next_req += 1
+                    summary.requirements_added.append(ItemRef(id=rid, title=c.title))
+                made.append(Requirement(id=rid, **c.model_dump()))
+            new_reqs_by_chunk[chunk_key(chunk.text)] = made
+
+        requirements: List[Requirement] = []
+        unchanged_req_ids: set = set()
+        for chunk in decompose_document(new_text):
+            k = chunk_key(chunk.text)
+            if k in new_reqs_by_chunk:
+                requirements.extend(new_reqs_by_chunk.pop(k))
+            elif k in old_by_src:
+                for r in old_by_src.pop(k):
+                    unchanged_req_ids.add(r.id)
+                    requirements.append(r)
+        summary.requirements_unchanged = len(unchanged_req_ids)
+        current_req_ids = {r.id for r in requirements}
+        summary.requirements_removed = [
+            ItemRef(id=r.id, title=r.title) for r in old_reqs if r.id not in current_req_ids
+        ]
+        req_issues = validate_requirements(requirements, document_text=new_text)
+        req_issues += [RequirementIssue(code="EXTRACTION_ERROR", message=e) for e in extraction_errors]
+        req_doc = RequirementDocument(
+            document_id=req_doc.document_id, requirements=requirements, issues=req_issues,
+            model=getattr(client, "model", None), generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        path = save_requirements_document(req_doc, output_dir=self._resolve_output_dir(REQUIREMENTS_OUTPUT_DIR, "requirements"))
+        await self._update(job_id, progress=STAGE_BOUNDS["requirements"][1],
+                            message=STAGE_DONE_MESSAGES["requirements"], requirements_path=str(path))
+
+        # --- タスク: 変更・追加された要件だけ分解し、似たタスクにはIDと担当者を引き継ぐ ---
+        await self._update(job_id, current_step="tasks", progress=STAGE_BOUNDS["tasks"][0],
+                            message="変更・追加された要件だけをタスクに分解しています...")
+        to_decompose = [r for r in requirements if r.id not in unchanged_req_ids]
+        vocabulary = self._load_team_skill_vocabulary(job_id, project)
+        extra = {"team_skill_vocabulary": vocabulary} if vocabulary else {}
+        with pipeline_stage("tasks"):
+            client = timed_client(base_client, "tasks")
+            decomposed = await gather_with_concurrency(
+                [(lambda r=r: decompose_requirement(r, client, **extra)) for r in to_decompose],
+                get_max_concurrency(),
+            )
+        summary.llm_task_calls = len(to_decompose)
+
+        old_tasks = task_doc.tasks
+        # 変更された区画の古い要件に属していたタスク＝IDを引き継げる候補
+        changed_old_req_ids = {
+            r.id for old_key in paired_old.values() for r in old_reqs
+            if r.source_reference and chunk_key(r.source_reference.source_text or "") == old_key
+        }
+        next_task = next_id("TASK", [t.id for t in old_tasks])
+        reused_task: Dict[str, Task] = {}
+        added_tasks: List[Task] = []
+        decomposition_errors: List[str] = []
+        for req, (candidates, error) in zip(to_decompose, decomposed):
+            if error:
+                decomposition_errors.append(error)
+            pool = [
+                t for t in old_tasks
+                if t.id not in reused_task and set(t.requirement_ids) & (changed_old_req_ids | {req.id})
+            ]
+            mapping = match_items([c.title for c in candidates], [(t.id, t.title) for t in pool])
+            for i, c in enumerate(candidates):
+                tid = mapping.get(i)
+                if tid:
+                    old = next(t for t in pool if t.id == tid)
+                    reused_task[tid] = Task(id=tid, due_date=old.due_date, **c.model_dump())
+                    summary.tasks_updated.append(ItemRef(id=tid, title=c.title))
+                else:
+                    task = Task(id=f"TASK-{next_task:03d}", **c.model_dump())
+                    next_task += 1
+                    added_tasks.append(task)
+                    summary.tasks_added.append(ItemRef(id=task.id, title=task.title))
+
+        # 既存タスク: 変わらない要件に1つでも紐づくものはそのまま残す（複数の要件に
+        # 紐づくタスクを、一部の要件の変更だけで削除しない）。紐づく要件がすべて
+        # 変更・削除され、新しい分解でも対応するタスクが無いものは「削除候補」として
+        # 印を付けて残す（担当者・進捗を失わないよう、自動では削除しない）。
+        removal_ids: set = set()
+        merged: List[Task] = []
+        for t in old_tasks:
+            if t.id in reused_task:
+                merged.append(reused_task[t.id])
+            elif set(t.requirement_ids) & unchanged_req_ids:
+                alive = [rid for rid in t.requirement_ids if rid in current_req_ids]
+                merged.append(t if alive == t.requirement_ids else t.model_copy(update={"requirement_ids": alive}))
+            else:
+                removal_ids.add(t.id)
+                merged.append(t)
+                summary.tasks_removal_candidates.append(ItemRef(id=t.id, title=t.title))
+        merged.extend(added_tasks)
+        summary.tasks_unchanged = len(merged) - len(reused_task) - len(added_tasks) - len(removal_ids)
+
+        # 検証フラグは全タスクについて付け直す（新旧タスク間の重複も検出するため）
+        merged = [t.model_copy(update={"needs_review": False, "review_reasons": []}) for t in merged]
+        requirements_by_id = {r.id: r for r in requirements}
+        issues = validate_tasks(merged, requirements_by_id=requirements_by_id)
+        issues += [TaskIssue(code="DECOMPOSITION_ERROR", message=e) for e in decomposition_errors]
+        issues += check_task_skill_consistency(merged)
+        merged = apply_review_flags(merged, issues)
+        merged = [
+            mark_removal_candidate(t, [rid for rid in t.requirement_ids if rid not in current_req_ids])
+            if t.id in removal_ids else t
+            for t in merged
+        ]
+        task_doc = TaskDocument(
+            document_id=task_doc.document_id, tasks=merged, issues=issues,
+            model=getattr(client, "model", None), generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        path = save_tasks_document(task_doc, output_dir=self._resolve_output_dir(TASKS_OUTPUT_DIR, "tasks"))
+        await self._update(job_id, progress=STAGE_BOUNDS["tasks"][1],
+                            message=STAGE_DONE_MESSAGES["tasks"], tasks_path=str(path))
+
+        # --- 依存関係: 既存の依存を再利用し、残ったタスクについて検証し直す ---
+        await self._update(job_id, current_step="dependencies", progress=STAGE_BOUNDS["dependencies"][0],
+                            message="既存の依存関係を再利用して検証し直しています...")
+        task_ids = [t.id for t in merged]
+        id_set = set(task_ids)
+        dependencies = [d for d in dep_doc.dependencies if d.from_task_id in id_set and d.to_task_id in id_set]
+        dep_doc = DependencyDocument(
+            document_id=dep_doc.document_id, dependencies=dependencies,
+            issues=validate_dependencies(dependencies, task_ids),
+            graph=DependencyGraph(task_ids, dependencies).to_dict(),
+            model=dep_doc.model, generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        if added_tasks:
+            summary.notes.append(
+                f"追加されたタスク{len(added_tasks)}件の依存関係は自動では提案していません。"
+                "必要な場合は「AI分析を開始」で全体を作り直してください。"
+            )
+        if not chunks and not summary.requirements_removed:
+            summary.notes.append("仕様書に変更は見つかりませんでした。要件・タスクはすべて再利用しています。")
+        path = save_dependencies_document(dep_doc, output_dir=self._resolve_output_dir(DEPENDENCIES_OUTPUT_DIR, "dependencies"))
+        await self._update(job_id, progress=STAGE_BOUNDS["dependencies"][1],
+                            message=STAGE_DONE_MESSAGES["dependencies"], dependencies_path=str(path))
+        return req_doc, task_doc, dep_doc
 
     # --- 補助（毎回、短命なセッションを開いて即座にコミット・クローズする） ---
 

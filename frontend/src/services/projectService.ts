@@ -174,6 +174,23 @@ export async function fetchProjectMembers(projectId: string): Promise<MemberDire
 
 // ── 生成ジョブ ──
 
+/** POST /api/documents/parse のレスポンス（backend/services/parser.py の ParsedDocument） */
+export interface ParsedDocument {
+  filename: string;
+  text: string;
+  char_count: number;
+  page_count: number | null;
+  truncated: boolean;
+}
+
+/** PDF / Word(.docx) をバックエンドで本文テキストに変換する（DBには保存されない）。 */
+export async function parseDocument(file: File): Promise<ParsedDocument> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<ParsedDocument>("/api/documents/parse", form);
+  return data;
+}
+
 export async function startGeneration(
   projectId: string,
   body: GenerateRequest = {},
@@ -199,6 +216,64 @@ export async function getJobError(jobId: string): Promise<ErrorDetail | null> {
     // 正常な状態なので null を返す。
     const apiErr = err as ApiError | undefined;
     if (apiErr?.code === "NO_ERROR") return null;
+    throw err;
+  }
+}
+
+// ── 更新（前回の分析結果を再利用して、メンバー変更・仕様変更を反映する）──
+
+/** POST /api/projects/{id}/update のリクエスト（backend/models/job_schemas.py UpdateRequest） */
+export interface UpdateRequestBody {
+  source_job_id: string;
+  mode: "members" | "spec";
+  document_text?: string | null;
+  reassign_scope?: "unassigned" | "all" | "selected";
+  task_ids?: string[];
+  /** 画面で手動変更した担当者（タスクID → メンバーID、未割当にした場合は null） */
+  current_assignments?: Record<string, string | null>;
+}
+
+export interface UpdateItemRef {
+  id: string;
+  title: string;
+}
+
+/** GET /api/jobs/{id}/update-summary（backend/jobs/updates.py UpdateSummary） */
+export interface UpdateSummary {
+  mode: "members" | "spec";
+  source_job_id: string;
+  reassign_scope: "unassigned" | "all" | "selected";
+  requirements_unchanged: number;
+  requirements_changed: UpdateItemRef[];
+  requirements_added: UpdateItemRef[];
+  requirements_removed: UpdateItemRef[];
+  tasks_unchanged: number;
+  tasks_updated: UpdateItemRef[];
+  tasks_added: UpdateItemRef[];
+  tasks_removal_candidates: UpdateItemRef[];
+  assignments_kept: number;
+  assignments_changed: { task_id: string; before: string | null; after: string | null }[];
+  unassigned_after: string[];
+  llm_requirement_calls: number;
+  llm_task_calls: number;
+  notes: string[];
+}
+
+export async function startUpdate(projectId: string, body: UpdateRequestBody): Promise<GenerateResponse> {
+  const { data } = await apiClient.post<GenerateResponse>(`/api/projects/${projectId}/update`, body);
+  setActiveJobId(data.job_id);
+  invalidateProjectResultCache();
+  return data;
+}
+
+/** 更新ジョブでなければ（404 NOT_AN_UPDATE）null を返す */
+export async function getUpdateSummary(jobId: string): Promise<UpdateSummary | null> {
+  try {
+    const { data } = await apiClient.get<UpdateSummary>(`/api/jobs/${jobId}/update-summary`);
+    return data;
+  } catch (err) {
+    const apiErr = err as ApiError | undefined;
+    if (apiErr?.code === "NOT_AN_UPDATE") return null;
     throw err;
   }
 }

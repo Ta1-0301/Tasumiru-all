@@ -25,7 +25,9 @@ from backend.models.job_schemas import (
     ProjectCreateRequest,
     ProjectResponse,
     SetMembersRequest,
+    UpdateRequest,
 )
+from backend.models.job import JobModel
 from backend.models.project import ProjectModel
 from backend.pipeline.members.runner import build_member_directory, load_member_directory, save_member_directory
 from backend.pipeline.members.schema import MemberDirectory
@@ -173,4 +175,60 @@ async def generate_project(
         use_duplicate_llm_verification=body.use_duplicate_llm_verification,
     )
 
+    return GenerateResponse(job_id=job_id, status="queued")
+
+
+@router.post("/projects/{project_id}/update", response_model=GenerateResponse, status_code=202)
+async def update_project(
+    project_id: str,
+    body: UpdateRequest,
+    member: TeamMember = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+):
+    """完了済みジョブの結果を再利用して、メンバー変更・仕様変更を反映するジョブを開始する。
+
+    初回生成(`/generate`)と違い、要件抽出・タスク分解・依存関係を最初から作り直さない。
+    元のジョブの結果は変更せず、更新結果は新しいジョブとして保存する。
+    """
+    project = await _get_authorized_project(project_id, member, db)
+    source = await db.get(JobModel, body.source_job_id)
+    if source is None or source.project_id != project.id or source.team_id != member.team_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "JOB_NOT_FOUND", "message": "更新元のジョブが見つかりません。"},
+        )
+    if source.status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SOURCE_JOB_NOT_COMPLETED", "message": "更新元のジョブが完了していません。"},
+        )
+    if not project.members_path:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "MEMBERS_NOT_CONFIGURED", "message": "先にメンバー情報を設定してください。"},
+        )
+    if body.reassign_scope == "selected" and not body.task_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "TASK_IDS_REQUIRED", "message": "割り当て直すタスクを指定してください。"},
+        )
+
+    old_document_text = project.document_text
+    if body.mode == "spec":
+        if not body.document_text or not body.document_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "DOCUMENT_NOT_SET", "message": "更新後の仕様書本文を指定してください。"},
+            )
+        project.document_text = body.document_text
+        await db.commit()
+
+    job_id = await job_manager.create_job(project.id, project.team_id)
+    job_manager.schedule_update(
+        job_id, source.id, body.mode,
+        reassign_scope=body.reassign_scope,
+        task_ids=body.task_ids,
+        client_overrides=body.current_assignments,
+        old_document_text=old_document_text,
+    )
     return GenerateResponse(job_id=job_id, status="queued")

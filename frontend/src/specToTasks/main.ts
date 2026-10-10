@@ -1,7 +1,7 @@
 // src/specToTasks/main.ts
 //
 // 画面: Spec to Tasks（仕様書 → 要件抽出 → タスク分解 → 自動割当 → Kanban）の
-// 11ステップ・ウィザード。claude.ai/design「Spec to Tasks.dc.html」の実装。
+// 11ステップ・ウィザード。デザイン案「Spec to Tasks」の実装。
 // 現状はサンプルデータ（./data.ts）のみで動作するフロントエンド単体デモ。
 //
 // URLパラメータ（デザインの props に対応）:

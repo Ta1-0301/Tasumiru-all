@@ -1,7 +1,7 @@
 // src/specToTasks/app.ts
 //
 // 画面: Spec to Tasks（仕様書 → 要件抽出 → タスク分解 → 自動割当 → Kanban）の
-// 11ステップ・ウィザード。claude.ai/design「Spec to Tasks.dc.html」のUIを、
+// 11ステップ・ウィザード。デザイン案「Spec to Tasks」のUIを、
 // 実際のバックエンドAPI（変更なし）に接続したもの。
 //
 // 使うAPI（すべて src/services/projectService.ts 経由）:
@@ -25,11 +25,15 @@ import {
   getProject,
   getProjectResult,
   getSampleProjectResult,
+  getUpdateSummary,
   invalidateProjectResultCache,
+  parseDocument,
   setActiveJobId,
   setProjectMembers,
   startGeneration,
+  startUpdate,
 } from "../services/projectService";
+import type { UpdateSummary } from "../services/projectService";
 import { extractErrorMessage } from "../pipeline/format";
 import { PIPELINE_STEPS } from "../types/taskGenerationProgress";
 import type { JobStatusResponse } from "../types/job";
@@ -69,9 +73,16 @@ const KANBAN_COLS = ["未着手", "進行中", "レビュー", "完了"] as cons
 type KanbanCol = (typeof KANBAN_COLS)[number];
 
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|html?|xml|ya?ml)$/i;
-const BINARY_EXT = /\.(pdf|docx?|pptx?|xlsx?|rtf)$/i;
+// バックエンドの POST /api/documents/parse が本文テキストに変換できる形式（backend/services/parser.py）
+const PARSE_EXT = /\.(pdf|docx)$/i;
+// 上記以外のバイナリ形式（バックエンドも未対応）
+const BINARY_EXT = /\.(doc|pptx?|xlsx?|rtf)$/i;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_PARSE_BYTES = 20 * 1024 * 1024; // バックエンドの MAX_UPLOAD_SIZE 既定値と同じ
 const POLL_INTERVAL_MS = 1500;
+// 割当で「この負荷率以下の人を優先する」閾値（backend/pipeline/assignment/workload_balancing.py の
+// WORKLOAD_WARNING_PERCENTAGE と同じ値）。100% はハード制約で、自動割当では超えない。
+const HIGH_LOAD_PCT = 80;
 
 /** 動作確認用の短いサンプル仕様書（バックエンドで実際に分析される） */
 const SAMPLE_SPEC = `1. 概要
@@ -134,6 +145,10 @@ interface State {
   selTask: string;
   kb: Record<string, KanbanCol>;
   demo: boolean;
+  /** 前回の結果を再利用した更新ジョブの内容（初回生成なら null） */
+  updateSummary: UpdateSummary | null;
+  /** 更新ジョブの元になったジョブ（更新に失敗したときに戻すため） */
+  prevJobId: string | null;
 }
 
 const state: State = {
@@ -165,6 +180,8 @@ const state: State = {
   selTask: "",
   kb: {},
   demo: false,
+  updateSummary: null,
+  prevJobId: null,
 };
 
 let root: HTMLElement;
@@ -307,8 +324,8 @@ function memberViews(M: Model, a: Assignment): MemberView[] {
     return {
       id: m.id, name: m.name, ini: m.ini, role: m.role, pct: p, hTxt: `${fmtH(h)} / ${fmtH(m.cap)}`, cap: m.cap,
       baseW: W(bp), newW: W(Math.min(p, 125) - Math.min(bp, 125)), barBg: over ? WARN : ACC, pctFg: over ? WARN : "var(--color-text)",
-      status: p > 100 ? "過負荷" : p > 85 ? "高負荷" : p >= 60 ? "適正" : "余裕あり",
-      stBg: over ? WARN_BG : p > 85 ? "var(--color-accent-200)" : "var(--color-neutral-100)",
+      status: p > 100 ? "過負荷" : p > HIGH_LOAD_PCT ? "高負荷" : p >= 60 ? "適正" : "余裕あり",
+      stBg: over ? WARN_BG : p > HIGH_LOAD_PCT ? "var(--color-accent-200)" : "var(--color-neutral-100)",
       stFg: over ? WARN_FG : "var(--color-accent-800)",
       bp, over, mine: M.tasks.filter((t) => a[t.id] === m.id),
     };
@@ -353,7 +370,7 @@ function rankCandidates(M: Model, t: VTask, a: Assignment, exclude?: string) {
 }
 
 interface WarnAction { label: string; sub: string; attrs: string }
-interface Warning { kind: string; sev: 0 | 1 | 2; title: string; detail: string; actions: WarnAction[]; bg: string; fg: string }
+interface Warning { kind: string; sev: 0 | 1 | 2; title: string; detail: string; actions: WarnAction[]; bg: string; fg: string; skills?: string[] }
 
 const WARN_KINDS: [string, 0 | 1 | 2][] = [["未割当", 0], ["過負荷", 0], ["スキル不足", 1], ["検証エラー", 1], ["要件が曖昧", 2], ["要レビュー", 2], ["重複の可能性", 2]];
 
@@ -365,7 +382,7 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
 
   M.tasks.filter((t) => !a[t.id]).forEach((t) => {
     warns.push({
-      kind: "未割当", sev: 0, title: `${t.id} ${t.title}`,
+      kind: "未割当", sev: 0, title: `${t.id} ${t.title}`, skills: t.skills,
       detail: unassignedReason(M, t.id),
       actions: rankCandidates(M, t, a).slice(0, 2).map((x) => wa(`${x.m.name}に割当`, cand(x), act("assign", t.id, x.m.id))),
     });
@@ -394,7 +411,7 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
     if (!miss.length) return;
     const alt = rankCandidates(M, t, a, mid).filter((x) => !x.s.missing.length).slice(0, 1);
     warns.push({
-      kind: "スキル不足", sev: 1, title: `${t.id} ${t.title}`,
+      kind: "スキル不足", sev: 1, title: `${t.id} ${t.title}`, skills: t.skills,
       detail: `${m.name}：${miss.join("・")} を未保有`,
       actions: alt
         .map((x) => wa(`${x.m.name}に変更`, cand(x), act("assign", t.id, x.m.id)))
@@ -405,11 +422,11 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
   const rep = M.validation?.report;
   if (rep) {
     const taskLink = (ids: string[]) => ids.find((id) => M.TK[id]);
-    const pushV = (kind: string, sev: 0 | 1 | 2, key: string, title: string, detail: string, ids: string[]) => {
+    const pushV = (kind: string, sev: 0 | 1 | 2, key: string, title: string, detail: string, ids: string[], withSkills = false) => {
       if (state.acked[key]) return;
       const tid = taskLink(ids);
       warns.push({
-        kind, sev, title, detail,
+        kind, sev, title, detail, skills: withSkills && tid ? M.TK[tid].skills : undefined,
         actions: (tid ? [wa("出典を確認", tid, act("openSource", tid))] : []).concat([wa("確認済みにする", "この警告を閉じる", act("ack", key))]),
       });
     };
@@ -419,7 +436,7 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
       pushV("検証エラー", 1, `miss:${x.requirement_id}`, `${x.requirement_id} ${r?.title ?? ""}`, x.message, tid ? [tid] : []);
     });
     rep.dependency_errors?.forEach((x, i) => pushV("検証エラー", 1, `dep:${x.code}:${i}`, x.task_ids.join(" → ") || x.code, x.message, x.task_ids));
-    rep.constraint_violations?.forEach((x) => pushV("検証エラー", 1, `cv:${x.task_id}:${x.member_id}`, `${x.task_id} ${M.TK[x.task_id]?.title ?? ""}`, x.message, [x.task_id]));
+    rep.constraint_violations?.forEach((x) => pushV("検証エラー", 1, `cv:${x.task_id}:${x.member_id}`, `${x.task_id} ${M.TK[x.task_id]?.title ?? ""}`, x.message, [x.task_id], true));
     rep.duplicate_tasks?.forEach((x) =>
       pushV("重複の可能性", 2, `dup:${x.task_ids.join(",")}`, x.task_ids.map((id) => `${id} ${M.TK[id]?.title ?? ""}`).join(" / "),
         `類似度 ${Math.round(x.similarity * 100)}% · ${x.reason}`, x.task_ids));
@@ -436,7 +453,7 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
 
   M.tasks.filter((t) => t.needsReview && !state.acked[`rev:${t.id}`]).forEach((t) => {
     warns.push({
-      kind: "要レビュー", sev: 2, title: `${t.id} ${t.title}`,
+      kind: "要レビュー", sev: 2, title: `${t.id} ${t.title}`, skills: t.skills,
       detail: t.reviewReasons.join(" / ") || "AIが人による確認を推奨しています",
       actions: [wa("出典を確認", srcLabel(t.sec, t.page), act("openSource", t.id)), wa("確認済みにする", "内容を確認した", act("ack", `rev:${t.id}`))],
     });
@@ -444,6 +461,21 @@ function buildWarnings(M: Model, a: Assignment): Warning[] {
 
   const SEV: [string, string][] = [[WARN_BG, WARN_FG], ["var(--color-accent-200)", "var(--color-accent-800)"], ["var(--color-neutral-200)", "var(--color-neutral-800)"]];
   return warns.map((w) => ({ ...w, bg: SEV[w.sev][0], fg: w.sev === 0 ? WARN : SEV[w.sev][1] }));
+}
+
+/** 警告の対象タスクの必要スキル。チームの誰も持っていないスキルは目立たせる
+ *  （割当と同じく、正規化したスキル名の一致で判定する） */
+function warnSkillsHtml(M: Model, w: Warning): string {
+  if (!w.skills) return "";
+  const tags = w.skills.length
+    ? w.skills.map((sk) => {
+        const held = M.members.some((m) => levelOf(m, sk) >= 1);
+        return held
+          ? `<span class="tag tag-outline">${esc(sk)}</span>`
+          : `<span class="tag" style="background:${WARN_BG};color:${WARN_FG}" title="チームにこのスキルを持つメンバーがいません">${esc(sk)}（保有者なし）</span>`;
+      }).join("")
+    : `<span class="tag tag-outline" style="color:var(--color-neutral-600)">スキル指定なし（誰でも担当可）</span>`;
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:4px;font-size:12px"><span style="color:var(--color-neutral-700)">必要スキル：</span>${tags}</div>`;
 }
 
 /** 種類ごとに表示件数を絞る（大きな仕様書では数百件になり得るため） */
@@ -539,7 +571,7 @@ function step1(): string {
         ${!has ? `
         <span style="color:var(--color-accent)"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></span>
         <h2 style="margin:0;font-size:28px">仕様書をここにドロップ</h2>
-        <div style="font-size:13px;color:var(--color-neutral-700)">テキスト / Markdown ファイル · 最大 50MB</div>
+        <div style="font-size:13px;color:var(--color-neutral-700)">PDF / Word(.docx) · 最大 20MB　テキスト / Markdown · 最大 50MB</div>
         <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;justify-content:center"><span class="btn btn-secondary">ファイルを選択</span><span class="btn btn-ghost" ${act("sample")}>サンプル仕様書で試す</span></div>` : `
         <div class="blueprint" style="width:96px;height:120px;display:flex;flex-direction:column;justify-content:flex-end;padding:10px;background:repeating-linear-gradient(0deg,transparent 0 11px,var(--color-accent-200) 11px 12px)">
           ${CORNERS}
@@ -552,8 +584,9 @@ function step1(): string {
       ${note}
       <div class="field">
         <label for="s2t-doc">仕様書の本文（直接貼り付け・編集もできます）</label>
-        <textarea id="s2t-doc" class="input" data-bind="docText" style="min-height:220px;font-size:13px;line-height:1.6" placeholder="要件定義書・仕様書・RFP の本文をここに貼り付けてください">${esc(state.docText)}</textarea>
+        <textarea id="s2t-doc" class="input" data-bind="docText" style="min-height:220px;font-size:13px;line-height:1.6" placeholder="要件定義書・仕様書・RFP・業務資料（イベント企画、資料作成、研修など）の本文をここに貼り付けてください">${esc(state.docText)}</textarea>
       </div>
+      ${has ? precheckHtml(state.docText) : ""}
     </div>
     <div style="display:flex;flex-direction:column;gap:18px;padding-top:6px">
       <h3 style="margin:0;font-size:22px">AIが読み取るもの</h3>
@@ -562,7 +595,7 @@ function step1(): string {
         ${readRow("02", "出典（章・段落）", "すべてのタスクに原文の該当箇所を紐づけ")}
         ${readRow("03", "曖昧な記述", "信頼度の低い要件・レビューが必要なタスクを「要確認」として検出")}
       </div>
-      <div style="font-size:12.5px;color:var(--color-neutral-700);line-height:1.7">PDF / Word は、バックエンドの分析APIがテキスト本文のみを受け付けるため、本文をコピーして上の欄に貼り付けてください。</div>
+      <div style="font-size:12.5px;color:var(--color-neutral-700);line-height:1.7">PDF / Word(.docx) は、サーバーで本文テキストに変換してから読み込みます。画像だけのPDF（スキャンしたもの）や、表・図の中の文字は取り出せないことがあるため、読み込み後に左の欄で内容を確認してください。</div>
     </div>
   </div>`;
 }
@@ -574,12 +607,12 @@ function step2(): string {
     <div style="display:grid;grid-template-columns:minmax(100px,150px) minmax(0,1fr);${last ? "" : "border-bottom:1px solid var(--color-divider)"}"><div style="padding:16px 20px;font-size:12px;color:var(--color-neutral-700)">${label}</div><div style="padding:${pad}">${body}</div></div>`;
   const inputCss = "min-height:32px;padding:4px 8px;font-size:13px";
   const memberRows = state.members.map((m, i) => `
-    <div style="display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 64px 64px 28px;gap:6px;align-items:center">
+    <div style="display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 64px 64px 52px;gap:6px;align-items:center">
       <input class="input" style="${inputCss}" data-mi="${i}" data-mf="name" value="${esc(m.name)}" placeholder="氏名">
       <input class="input" style="${inputCss}" data-mi="${i}" data-mf="skills" value="${esc(m.skills)}" placeholder="Python:4, React:3">
       <input class="input" style="${inputCss}" data-mi="${i}" data-mf="cap" type="number" min="0" step="1" value="${m.cap}" title="週あたり稼働可能時間">
       <input class="input" style="${inputCss}" data-mi="${i}" data-mf="base" type="number" min="0" step="1" value="${m.base}" title="既存業務の時間">
-      <button class="btn btn-ghost" ${act("delMember", i)} title="削除" style="padding:2px 6px">×</button>
+      <span style="display:flex;gap:2px"><button class="btn btn-ghost" ${act("dupMember", i)} title="このメンバーのスキル・稼働時間をコピーして追加" style="padding:2px 4px">⧉</button><button class="btn btn-ghost" ${act("delMember", i)} title="削除" style="padding:2px 6px">×</button></span>
     </div>`).join("");
   const ready = !!state.docText.trim() && state.members.some((m) => m.name.trim());
   const busy = state.starting;
@@ -596,9 +629,10 @@ function step2(): string {
         <div style="font-size:11.5px;color:var(--color-neutral-600)">設定すると、負荷を納期までの稼働可能時間で計算し、期限内に終わらない担当候補を除外します。</div>
       </div>`)}
       ${row("割当対象チーム", `<div style="display:flex;flex-direction:column;gap:8px">
-        <div style="display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 64px 64px 28px;gap:6px;font-size:11px;color:var(--color-neutral-600)"><span>氏名</span><span>スキル:レベル(1〜5)</span><span>稼働h/週</span><span>既存h</span><span></span></div>
+        <div style="display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 64px 64px 52px;gap:6px;font-size:11px;color:var(--color-neutral-600)"><span>氏名</span><span>スキル:レベル(1〜5)</span><span>稼働h/週</span><span>既存h</span><span></span></div>
         ${memberRows || `<div style="font-size:12.5px;color:var(--color-neutral-600)">メンバーがいません。1人以上追加してください。</div>`}
         <div><button class="btn btn-secondary" ${act("addMember")} style="font-size:12.5px;padding:4px 10px">＋ メンバーを追加</button></div>
+        ${skillHelpHtml()}
         ${state.membersNote ? `<div style="font-size:12px;color:var(--color-neutral-700)">${esc(state.membersNote)}</div>` : ""}
       </div>`)}
       ${row("オプション", `<div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
@@ -613,6 +647,7 @@ function step2(): string {
       ${state.startError ? `<div style="font-size:12.5px;padding:10px 12px;background:${WARN_BG};color:${WARN_FG}">${esc(state.startError)}</div>` : ""}
       ${state.demo ? `<div style="font-size:12.5px;color:var(--color-neutral-700)">デモモード（バックエンド未接続）のため分析は実行できません。STEP 4 以降でサンプル結果を確認できます。</div>` : ""}
       <button class="btn btn-primary blueprint" ${act("start")} ${!ready || busy || state.demo ? "disabled" : ""} style="padding:16px 20px;font-size:18px">${CORNERS}${busy ? "開始しています…" : "AI分析を開始 →"}</button>
+      ${updatePanelHtml(ready, busy)}
     </div>
   </div>`;
 }
@@ -653,8 +688,9 @@ function step3(): string {
           return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--color-divider);color:${on ? "var(--color-text)" : "var(--color-neutral-500)"}"><span style="width:20px;height:20px;display:grid;place-items:center;font-size:11px;border:1px solid ${err ? WARN : on ? ACC : "var(--color-divider)"};background:${sDone ? ACC : err ? WARN : "transparent"};color:${sDone || err ? "#fff" : ACC}">${sDone ? "✓" : err ? "!" : active ? "●" : ""}</span><span style="flex:1;font-size:14px;font-weight:${active ? 600 : 400}">${esc(s.label)}</span><span style="font-size:12px">${sDone ? "完了" : err ? "エラー" : active ? "処理中…" : "待機"}</span></div>`;
         }).join("")}
       </div>
-      ${failed ? `<div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:${WARN_BG};color:${WARN_FG};font-size:13px">${esc(state.jobError || j?.message || "分析中にエラーが発生しました")}<div style="display:flex;gap:8px"><button class="btn btn-secondary" ${act("go", 2)}>条件を見直して再実行</button></div></div>` : ""}
+      ${failed ? `<div style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:${WARN_BG};color:${WARN_FG};font-size:13px">${esc(state.jobError || j?.message || "分析中にエラーが発生しました")}<div style="display:flex;gap:8px"><button class="btn btn-secondary" ${act("go", 2)}>条件を見直して再実行</button>${state.prevJobId ? `<button class="btn btn-secondary" ${act("restorePrev")}>更新前の結果に戻る</button>` : ""}</div></div>` : ""}
       ${done && M ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn btn-primary blueprint" ${act("go", 4)}>${CORNERS}抽出された要件を確認 →</button><span style="font-size:13px;color:var(--color-neutral-700)">要件${M.reqs.length}件 · タスク${M.tasks.length}件 · 割当${counters[3][1]}件 · 要対応${warnCount}件</span></div>` : ""}
+      ${done && M && state.updateSummary ? updateSummaryHtml(state.updateSummary) : ""}
       ${done && !M ? `<div style="font-size:13px;color:var(--color-neutral-700)">${state.loadingResult ? "分析結果を読み込んでいます…" : `<button class="btn btn-secondary" ${act("reloadResult")}>分析結果を読み込む</button>`}</div>` : ""}
     </div>
     <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-height:420px">${CORNERS}
@@ -787,7 +823,8 @@ function step7(M: Model): string {
   const v = state.variant[7];
   const capLine = (top: number) => `<div style="position:absolute;top:-${top}px;bottom:-${top}px;left:80%;width:1px;background:var(--color-text)"></div>`;
   const sortedSkills = (m: VMember) => Object.keys(m.sk).sort((x, y) => m.sk[y] - m.sk[x]);
-  const legend = `<div style="display:flex;gap:18px;padding:12px 8px;border-top:1px solid var(--color-divider);font-size:11.5px;color:var(--color-neutral-700);flex-wrap:wrap"><span>数字 = スキルレベル（1〜5）</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-neutral-300)"></i>既存業務</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-accent)"></i>今回の割当</span><span>縦線 = 稼働上限（${esc(capLabel(M))}）</span></div>`;
+  const legend = `<div style="display:flex;gap:18px;padding:12px 8px;border-top:1px solid var(--color-divider);font-size:11.5px;color:var(--color-neutral-700);flex-wrap:wrap"><span>数字 = スキルレベル（1〜5）</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-neutral-300)"></i>既存業務</span><span style="display:flex;align-items:center;gap:6px"><i style="width:12px;height:8px;background:var(--color-accent)"></i>今回の割当</span><span>縦線 = 稼働上限（${esc(capLabel(M))}）</span></div>
+  <div style="padding:0 8px 12px;font-size:11.5px;color:var(--color-neutral-700);line-height:1.7">負荷率 =（既存業務 + 割り当てたタスクの見積り工数）÷ ${esc(capLabel(M))}。${HIGH_LOAD_PCT}%を超えると「高負荷」（自動割当ではスキルが同等なら${HIGH_LOAD_PCT}%以下の人を優先）、100%を超えると「過負荷」です（自動割当では100%を超える割当はしないため、手動で変更した場合などに起こります）。${M.period ? "納期が設定されているため、上限は期間内の稼働可能時間で、期限までに終わらない人は候補から外れます。" : "納期が設定されていないため、上限は1週間分の稼働時間です（1週間で終わらない量のタスクは未割当になります）。"}</div>`;
 
   if (v === 0) {
     const sk = M.skillCols;
@@ -928,6 +965,10 @@ function step8(M: Model): string {
 }
 
 function step9(M: Model): string {
+  return `<div style="display:flex;flex-direction:column;gap:22px">${state.updateSummary ? updateSummaryHtml(state.updateSummary) : ""}${checkSummaryHtml(M)}${step9List(M)}</div>`;
+}
+
+function step9List(M: Model): string {
   const all = buildWarnings(M, state.assign);
   if (!all.length) {
     return `<div class="blueprint" style="padding:28px;display:flex;align-items:center;gap:16px">${CORNERS}<span style="font:600 40px var(--font-heading);color:var(--color-accent)">✓</span><div><h3 style="margin:0;font-size:24px">要対応の項目はありません</h3><div style="font-size:13px;color:var(--color-neutral-700)">すべてのタスクが割り当てられ、負荷・スキルの条件を満たしています。</div></div></div>`;
@@ -944,7 +985,7 @@ function step9(M: Model): string {
       ${shown.map((w) => `
       <div style="display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:18px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--color-divider)">
         <span class="tag" style="justify-self:start;background:${w.bg};color:${w.fg}">${esc(w.kind)}</span>
-        <div><div style="font-weight:500">${esc(w.title)}</div><div style="font-size:12.5px;color:var(--color-neutral-700)">${esc(w.detail)}</div></div>
+        <div><div style="font-weight:500">${esc(w.title)}</div><div style="font-size:12.5px;color:var(--color-neutral-700)">${esc(w.detail)}</div>${warnSkillsHtml(M, w)}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
           ${w.actions.map((x) => `<button class="btn btn-secondary" ${x.attrs} style="flex-direction:column;align-items:flex-start;gap:0;padding:6px 12px"><span style="font-size:13px">${esc(x.label)}</span><span style="${subFont}">${esc(x.sub)}</span></button>`).join("")}
         </div>
@@ -964,6 +1005,7 @@ function step9(M: Model): string {
       <span class="card-kicker" style="color:${w.fg}">${esc(w.kind)}</span>
       <div class="card-title">${esc(w.title)}</div>
       <p class="card-body">${esc(w.detail)}</p>
+      ${warnSkillsHtml(M, w)}
       <div style="display:flex;flex-direction:column;gap:6px">
         ${w.actions.map((x) => `<button class="btn btn-secondary" ${x.attrs} style="justify-content:space-between;width:100%;gap:10px"><span>${esc(x.label)}</span><span style="${subFont}">${esc(x.sub)}</span></button>`).join("")}
       </div>
@@ -1099,7 +1141,7 @@ function render(): void {
       </div>
     </main>
   </div>
-  <input type="file" id="s2t-file" accept=".txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,.pdf,.doc,.docx,text/*" style="display:none">`;
+  <input type="file" id="s2t-file" accept=".txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,.pdf,.docx,text/*" style="display:none">`;
 
   root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => {
     const top = scrolls[el.dataset.scroll!];
@@ -1122,11 +1164,15 @@ async function readFile(file: File): Promise<void> {
     setState({ fileNote: { kind: "error", text: "ファイルサイズが 50MB を超えています。" } });
     return;
   }
+  if (PARSE_EXT.test(file.name)) {
+    await readFileViaBackend(file);
+    return;
+  }
   if (BINARY_EXT.test(file.name)) {
     setState({
       fileNote: {
         kind: "error",
-        text: `${file.name} は PDF / Office 形式です。バックエンドの分析APIはテキスト本文のみを受け付けるため、ファイルを開いて本文をコピーし、下の欄に貼り付けてください。`,
+        text: `${file.name} の形式（.doc / PowerPoint / Excel / RTF）には対応していません。PDF または Word(.docx) で保存し直すか、本文をコピーして下の欄に貼り付けてください。`,
       },
     });
     return;
@@ -1145,6 +1191,38 @@ async function readFile(file: File): Promise<void> {
     saveDraft();
   } catch {
     setState({ fileNote: { kind: "error", text: `${file.name} を読み込めませんでした。` } });
+  }
+}
+
+/** PDF / Word(.docx) はブラウザでは本文を取り出せないため、バックエンドで本文テキストに変換する。 */
+async function readFileViaBackend(file: File): Promise<void> {
+  if (state.demo) {
+    setState({ fileNote: { kind: "error", text: `デモモード（バックエンド未接続）のため ${file.name} を読み込めません。本文を下の欄に貼り付けてください。` } });
+    return;
+  }
+  if (file.size > MAX_PARSE_BYTES) {
+    setState({ fileNote: { kind: "error", text: "PDF / Word ファイルは 20MB までです。" } });
+    return;
+  }
+  setState({ fileNote: { kind: "ok", text: `${file.name} から本文を取り出しています…` } });
+  try {
+    const parsed = await parseDocument(file);
+    if (!parsed.text.trim()) {
+      setState({ fileNote: { kind: "error", text: `${file.name} から文字を取り出せませんでした（画像だけのPDFなど）。本文を下の欄に貼り付けてください。` } });
+      return;
+    }
+    const pages = parsed.page_count ? `・${parsed.page_count}ページ` : "";
+    setState({
+      docText: parsed.text,
+      fileName: file.name,
+      fileNote: {
+        kind: "ok",
+        text: `${file.name} を読み込みました（${parsed.char_count.toLocaleString()}字${pages}）。表や画像の中の文字は取り込まれないことがあるため、下の欄で内容を確認してください。`,
+      },
+    });
+    saveDraft();
+  } catch (err) {
+    setState({ fileNote: { kind: "error", text: `${file.name} を読み込めませんでした: ${extractErrorMessage(err, "サーバーでの変換に失敗しました。")}` } });
   }
 }
 
@@ -1231,6 +1309,7 @@ async function startAnalysis(): Promise<void> {
     setState({
       starting: false, jobId: job_id, job: null, jobError: null, logs: [], model: null,
       assign: {}, acked: {}, kb: {}, selReq: "", selTask: "", maxStep: 3,
+      updateSummary: null, prevJobId: null,
     });
     go(3);
     pollJob(job_id);
@@ -1307,8 +1386,10 @@ async function loadResult(jobId: string): Promise<void> {
     try { docText = JSON.parse(LS.get(docKey(jobId)) || "null")?.text ?? ""; } catch { /* 無視 */ }
     const M = buildModel(out, docText);
     const work = loadWork(jobId, M);
+    let updateSummary: UpdateSummary | null = null;
+    try { updateSummary = await getUpdateSummary(jobId); } catch { /* 更新内容が取れなくても結果は表示する */ }
     setState({
-      model: M, loadingResult: false, maxStep: 11,
+      model: M, loadingResult: false, maxStep: 11, updateSummary,
       ...work,
       selReq: M.reqs[0]?.id ?? "",
       selTask: M.tasks[0]?.id ?? "",
@@ -1351,8 +1432,194 @@ function newSpec(): void {
   setState({
     step: 1, maxStep: 2, model: null, job: null, jobError: null, logs: [],
     assign: {}, acked: {}, kb: {}, docText: "", fileName: "", fileNote: null, startError: null,
+    updateSummary: null, prevJobId: null,
   });
   saveDraft();
+}
+
+// ─── 入力資料の事前チェック・説明 ─────────────────────────────────────────
+
+/** 入力資料の不足に気づくための簡易チェック。文字数と語句の有無を見るだけで、資料の品質は保証しない */
+function docPrecheck(text: string): string[] {
+  const t = text.trim();
+  const notes: string[] = [];
+  if (t.length < 100) notes.push(`本文が短いため（${t.length}字）、抽出される要件やタスクが少なくなる可能性があります。`);
+  if (!/(する|して|こと|作成|実施|準備|開催|実装|提出|集計|確認|対応|設計|運営|募集|報告|整理|調査)/.test(t)) {
+    notes.push("「〜する」「〜を作成する」のような具体的な作業が見つかりませんでした。作業内容を書き足すと、タスクに分解しやすくなります。");
+  }
+  if (!/(目的|ため|狙い|目標|ゴール|背景|概要)/.test(t)) notes.push("目的や背景が書かれていない可能性があります（見出しが無いだけなら問題ありません）。");
+  if (!/(成果物|提出|納品|報告|資料|完成|作成|完了|納期|期限|まで)/.test(t)) notes.push("成果物・完了の条件・期限が書かれていない可能性があります。");
+  return notes;
+}
+
+function precheckHtml(text: string): string {
+  const notes = docPrecheck(text);
+  return `<div style="font-size:12.5px;line-height:1.7;padding:10px 12px;background:var(--color-neutral-100)">
+    <div style="font-weight:500">入力資料の事前チェック（目安）</div>
+    ${notes.length ? `<ul style="margin:4px 0 0;padding-left:18px">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "<div>大きな不足は見つかりませんでした。</div>"}
+    <div style="font-size:11.5px;color:var(--color-neutral-600)">文字数と語句の有無だけを見る簡易チェックです。資料の正しさや品質を保証するものではありません。</div>
+  </div>`;
+}
+
+/** スキルレベルの意味と、割当での使われ方（backend の SKILL_LEVEL_NAMES と scoring.py に対応） */
+function skillHelpHtml(): string {
+  const used = [...new Set(state.members.flatMap((m) => parseSkills(m.skills).map((s) => s.skill)))];
+  return `<div style="font-size:11.5px;color:var(--color-neutral-700);line-height:1.7">
+    スキルレベルの目安：1 初心者（支援を受けながら基本的な作業ができる）／2 基礎（手順が決まった作業を一人でできる）／3 中級（一般的な作業を自立してできる）／4 上級（複雑な作業や問題解決ができる）／5 熟練（高度な判断や他の人の指導ができる）。<br>
+    割当では、タスクの必要スキルと<strong>同じ名前</strong>のスキルを持つ人だけが候補になり、スキル一致度は「レベル ÷ 5」です（一致度の差が1レベル以内なら、負荷の低い人を優先）。
+    ${used.length ? `<br>登録済みのスキル：${esc(used.join(", "))}（同じ表記で入力すると一致します。⧉ でメンバーをコピーできます）` : ""}
+  </div>`;
+}
+
+// ─── 前回の結果を再利用した更新 ──────────────────────────────────────────
+
+type UpdateKind = "members" | "spec" | "all";
+
+function docChangedSinceJob(): boolean {
+  if (!state.jobId) return false;
+  try {
+    const d = JSON.parse(LS.get(docKey(state.jobId)) || "null");
+    return !!d && typeof d.text === "string" && d.text.trim() !== state.docText.trim();
+  } catch {
+    return false;
+  }
+}
+
+function updatePanelHtml(ready: boolean, busy: boolean): string {
+  if (!state.model || !state.jobId || !state.projectId || state.newProject || state.demo) return "";
+  const changed = docChangedSinceJob();
+  const dis = !ready || busy;
+  const sub = "font:400 11.5px 'Barlow','Noto Sans JP',sans-serif;color:var(--color-neutral-600)";
+  const btn = (kind: UpdateKind, label: string, note: string, disabled: boolean) =>
+    `<button class="btn btn-secondary" ${act("update", kind)} ${disabled ? "disabled" : ""} style="flex-direction:column;align-items:flex-start;gap:0;padding:8px 12px"><span style="font-size:13.5px">${label}</span><span style="${sub}">${note}</span></button>`;
+  return `<div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">${CORNERS}
+    <div style="font-weight:600">前回の分析結果を再利用して更新</div>
+    <div style="font-size:12.5px;color:var(--color-neutral-700);line-height:1.7">要件抽出・タスク分解を最初からやり直さず、変更点だけを反映します。担当者が決まっているタスク（画面で手動変更したものを含む）は変更しません。結果は新しい分析として保存され、前回の結果は残ります。納期の変更は「AI分析を開始」で反映されます。</div>
+    ${btn("members", "メンバーの変更を反映", "未割当のタスクだけ割り当てる（AIは使わない）", dis)}
+    ${btn("spec", "仕様書の変更を反映", changed ? "変更・追加された部分だけAIで再解析する" : "仕様書が前回の分析から変わっていません", dis || !changed)}
+    ${btn("all", "すべてのタスクを割り当て直す", "手動で変更した担当者も上書きする（確認あり）", dis)}
+  </div>`;
+}
+
+function updateSummaryHtml(s: UpdateSummary): string {
+  const M = state.model;
+  const who = (id: string | null) => (id ? M?.MEM[id]?.name ?? id : "未割当");
+  const list = (items: { id: string; title: string }[]) =>
+    items.slice(0, 8).map((i) => `${i.id} ${i.title}`).join(" / ") + (items.length > 8 ? ` ほか${items.length - 8}件` : "");
+  const rows: [string, string][] = [];
+  if (s.mode === "spec") {
+    rows.push(["要件", `変更なし ${s.requirements_unchanged}件 · 変更 ${s.requirements_changed.length}件 · 追加 ${s.requirements_added.length}件 · 仕様から削除 ${s.requirements_removed.length}件`]);
+    rows.push(["タスク", `再利用 ${s.tasks_unchanged}件 · 内容を更新 ${s.tasks_updated.length}件 · 追加 ${s.tasks_added.length}件 · 削除候補 ${s.tasks_removal_candidates.length}件`]);
+    if (s.tasks_added.length) rows.push(["追加したタスク", list(s.tasks_added)]);
+    if (s.tasks_removal_candidates.length) rows.push(["削除候補（自動では削除していません）", list(s.tasks_removal_candidates)]);
+    rows.push(["AIの呼び出し", `要件抽出 ${s.llm_requirement_calls}回 · タスク分解 ${s.llm_task_calls}回（変更のない部分は呼び出していません）`]);
+  } else {
+    rows.push(["要件・タスク", `前回の結果をそのまま再利用（要件 ${s.requirements_unchanged}件・タスク ${s.tasks_unchanged}件。AIは呼び出していません）`]);
+  }
+  const scope = s.reassign_scope === "all" ? "すべて割り当て直し" : s.reassign_scope === "selected" ? "指定したタスクのみ割り当て直し" : "担当者が決まっているタスクは維持";
+  rows.push(["担当者", `${scope} · 維持 ${s.assignments_kept}件 · 新たに割当・変更 ${s.assignments_changed.length}件 · 未割当 ${s.unassigned_after.length}件`]);
+  if (s.assignments_changed.length) {
+    rows.push(["割当の変化", s.assignments_changed.slice(0, 8).map((c) => `${c.task_id}：${who(c.before)} → ${who(c.after)}`).join(" / ") + (s.assignments_changed.length > 8 ? ` ほか${s.assignments_changed.length - 8}件` : "")]);
+  }
+  s.notes.forEach((n) => rows.push(["注意", n]));
+  return `<div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:6px">${CORNERS}
+    <div style="font-weight:600">更新内容（${s.mode === "spec" ? "仕様書の変更" : "メンバーの変更"}を反映）</div>
+    ${rows.map(([k, v]) => `<div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;font-size:12.5px;line-height:1.6"><span style="color:var(--color-neutral-700)">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}
+  </div>`;
+}
+
+/** 検証結果の集計：件数と、判定理由・対応方法をまとめて示す（判定は既存の検証処理の結果をそのまま使う） */
+function checkSummaryHtml(M: Model): string {
+  const rep = M.validation?.report;
+  const a = state.assign;
+  const unassigned = M.tasks.filter((t) => !a[t.id]).length;
+  const rows: [string, number, string, string, string][] = [
+    ["タスクが紐づいていない要件", rep?.missing_requirements?.length ?? 0, "件",
+      "要件IDに紐づくタスクが1件もありません（検証 CHECK 1）。AIがその要件をタスクに分解できなかった可能性があります。",
+      "STEP 10 で原文を確認し、必要なら仕様書を補足して「仕様書の変更を反映」を実行してください。"],
+    ["重複の可能性があるタスクの組", rep?.duplicate_tasks?.length ?? 0, "組",
+      "タスク名の文字列の類似度が70%以上です（CHECK 2）。名前が似ているだけで、同じ作業とは限りません。",
+      "両方の内容を見比べ、同じ作業であれば片方を進めないようにしてください。"],
+    ["担当者が決まっていないタスク", unassigned, "件",
+      "必要スキルを持つ人がいない、割り当てると負荷が100%を超える、期限までに終わらない、のいずれかです（タスクごとの理由は下の一覧）。",
+      "スキルを持つメンバーを追加して STEP 2 の「メンバーの変更を反映」を実行するか、STEP 8 で手動で割り当ててください。"],
+    ["負荷が100%を超えるメンバー", M.members.filter((m) => pctOf(M, m.id, a) > 100).length, "人",
+      "（既存業務 + 割り当てた工数）÷ 稼働可能時間 が100%を超えています。自動割当では超えないため、手動変更などが原因です。",
+      "一部のタスクを他のメンバーへ移してください。"],
+    ["期限の前に工数が集中しているメンバー", (rep?.workload_warnings ?? []).filter((w) => w.code === "DEADLINE_OVERLOAD").length, "件",
+      "途中の期限までに割り当てた工数が、その期限までの稼働時間を超えています（CHECK 4。既存業務は含みません）。",
+      "期限の早いタスクを他のメンバーへ移すか、期限を見直してください。"],
+    ["要レビューのタスク", M.tasks.filter((t) => t.needsReview).length, "件",
+      "完了条件が無い、粒度が大きすぎる、スキルと作業内容が合わない、などの自動チェックで確認が必要と判定されました。",
+      "STEP 5・STEP 10 で内容を確認してください。"],
+  ];
+  return `<div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:4px">${CORNERS}
+    <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><span style="font-weight:600">検証結果のまとめ</span><span style="font-size:12.5px;color:var(--color-neutral-700)">要件 ${M.reqs.length}件 · タスク ${M.tasks.length}件 · 担当者あり ${M.tasks.length - unassigned}件</span></div>
+    ${rows.map(([label, n, unit, reason, action]) => `
+    <div style="display:grid;grid-template-columns:minmax(150px,220px) 64px minmax(0,1fr);gap:12px;padding:8px 0;border-top:1px solid var(--color-divider);font-size:12.5px;line-height:1.6;align-items:start">
+      <span>${esc(label)}</span>
+      <span style="font:600 18px var(--font-heading);color:${n ? WARN : "var(--color-accent-700)"}">${n}${unit}</span>
+      <span>${n ? `<span style="color:var(--color-neutral-700)">判定理由：</span>${esc(reason)}<br><span style="color:var(--color-neutral-700)">対応：</span>${esc(action)}` : `<span style="color:var(--color-neutral-600)">問題なし</span>`}</span>
+    </div>`).join("")}
+  </div>`;
+}
+
+async function startUpdateJob(kind: UpdateKind): Promise<void> {
+  const M = state.model;
+  const prev = state.jobId;
+  const projectId = state.projectId;
+  if (state.starting || !M || !prev || !projectId) return;
+  if (kind === "all" && !window.confirm(`すべてのタスク（${M.tasks.length}件）の担当者を割り当て直します。画面で手動変更した担当者も上書きされます。よろしいですか？`)) return;
+  const members = state.members.filter((m) => m.name.trim());
+  if (!members.length) return;
+  setState({ starting: true, startError: null });
+  try {
+    const saved = await setProjectMembers(projectId, members.map(fromDraft));
+    state.members = saved.members.map(toDraft);
+    // 画面で手動変更した担当者（ブラウザにしか保存されていない）を、維持する割り当てとして送る
+    const overrides: Record<string, string | null> = {};
+    M.tasks.forEach((t) => {
+      if (state.assign[t.id] !== M.aiAssign[t.id]) overrides[t.id] = state.assign[t.id] || null;
+    });
+    const { job_id } = await startUpdate(projectId, {
+      source_job_id: prev,
+      mode: kind === "spec" ? "spec" : "members",
+      document_text: kind === "spec" ? state.docText : null,
+      reassign_scope: kind === "all" ? "all" : "unassigned",
+      current_assignments: overrides,
+    });
+    carryWork(prev, job_id);
+    LS.set(docKey(job_id), JSON.stringify({ text: state.docText, fileName: state.fileName }));
+    jobStartedAt = Date.now();
+    setState({
+      starting: false, jobId: job_id, prevJobId: prev, job: null, jobError: null, logs: [], model: null,
+      assign: {}, acked: {}, kb: {}, selReq: "", selTask: "", maxStep: 3, updateSummary: null,
+    });
+    go(3);
+    pollJob(job_id);
+  } catch (err) {
+    setState({ starting: false, startError: extractErrorMessage(err, "更新の開始に失敗しました。") });
+  }
+}
+
+/** Kanbanの進捗と「確認済み」を新しいジョブへ引き継ぐ（タスクIDは更新後も維持される）。
+ *  担当者の手動変更はサーバー側の結果に反映済みなので引き継がない。 */
+function carryWork(from: string, to: string): void {
+  try {
+    const raw = JSON.parse(LS.get(workKey(from)) || "null");
+    if (raw) LS.set(workKey(to), JSON.stringify({ overrides: {}, acked: raw.acked || {}, kb: raw.kb || {} }));
+  } catch { /* 壊れた保存データは引き継がない */ }
+}
+
+function restorePrevJob(): void {
+  const prev = state.prevJobId;
+  if (!prev) return;
+  pollToken++;
+  setActiveJobId(prev);
+  invalidateProjectResultCache();
+  restoreDoc(prev);
+  setState({ jobId: prev, prevJobId: null, jobError: null, model: null, logs: [] });
+  loadResult(prev).then(() => go(4));
 }
 
 // ─── イベント（委譲） ─────────────────────────────────────────────────────
@@ -1391,6 +1658,17 @@ function bindEvents(): void {
         break;
       case "delMember":
         setState({ members: state.members.filter((_, i) => i !== Number(a)) });
+        break;
+      case "dupMember": {
+        const src = state.members[Number(a)];
+        if (src) setState({ members: [...state.members, { ...src, id: `m_${Date.now()}`, name: "", raw: undefined, days: [...src.days] }] });
+        break;
+      }
+      case "update":
+        startUpdateJob(a as UpdateKind);
+        break;
+      case "restorePrev":
+        restorePrevJob();
         break;
       case "start":
         startAnalysis();

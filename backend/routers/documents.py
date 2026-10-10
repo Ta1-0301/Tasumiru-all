@@ -46,3 +46,12 @@ async def parse_uploaded_document(
         raise HTTPException(status_code=400, detail={"code": "UNSUPPORTED_FILE_TYPE", "message": str(e)})
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"code": "EMPTY_DOCUMENT", "message": str(e)})
+    except Exception:  # noqa: BLE001 — 壊れた/パスワード付きPDF等でライブラリが投げる例外を500にしない
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "FILE_PARSE_ERROR",
+                "message": f"ファイル「{file.filename}」を読み取れませんでした。"
+                "ファイルが壊れているか、パスワードで保護されている可能性があります。",
+            },
+        )

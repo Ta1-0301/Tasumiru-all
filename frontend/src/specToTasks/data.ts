@@ -1,7 +1,7 @@
 // src/specToTasks/data.ts
 //
 // Spec to Tasks デモ用のサンプルデータとスコア計算。
-// claude.ai/design「Spec to Tasks.dc.html」のスクリプト部をそのまま型付けしたもの。
+// デザイン案「Spec to Tasks」のスクリプト部をそのまま型付けしたもの。
 
 export type SkillKey = "fe" | "be" | "db" | "infra" | "ux" | "sec" | "qa";
 

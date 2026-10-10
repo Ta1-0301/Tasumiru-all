@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.dependencies import get_current_member
 from backend.auth.models import TeamMember
+from backend.jobs.manager import job_manager
+from backend.jobs.updates import UpdateSummary, load_update_summary
 from backend.db.session import get_db
 from backend.models.job import JobModel
 from backend.models.job_schemas import ErrorDetail, JobStatusResponse
@@ -196,3 +198,20 @@ async def get_job_assignments(
             status_code=500,
             detail={"code": "RESULT_READ_ERROR", "message": f"保存済み結果の読み込みに失敗しました: {e}"},
         )
+
+
+@router.get("/jobs/{job_id}/update-summary", response_model=UpdateSummary)
+async def get_job_update_summary(
+    job_id: str,
+    member: TeamMember = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新ジョブ（POST /api/projects/{id}/update）で、何を再利用し何を作り直したか"""
+    await _get_authorized_job(job_id, member, db)
+    summary = load_update_summary(job_manager.update_summary_path(job_id))
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "NOT_AN_UPDATE", "message": "このジョブは更新ジョブではないか、まだ完了していません。"},
+        )
+    return summary

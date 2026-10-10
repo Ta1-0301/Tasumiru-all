@@ -78,7 +78,7 @@ class FakeLLMClient(BaseLLMClient):
                 "priority": "high", "origin": "explicit", "confidence": 0.9,
             }]}, ensure_ascii=False)
 
-        if "実行可能な開発タスクに分解してください" in prompt:  # Phase 4 decomposer
+        if "実行可能な作業タスクに分解してください" in prompt:  # Phase 4 decomposer
             return json.dumps({"tasks": [{
                 "title": "認証APIを実装する", "description": "APIを実装する",
                 "priority": "high", "estimated_hours": 8, "required_skills": ["Python"],
@@ -567,8 +567,8 @@ async def test_job_passes_team_skill_vocabulary_to_task_generation_only(client, 
     final_status, _ = await _poll_until_terminal(client, gen_resp.json()["job_id"])
     assert final_status["status"] == "completed"
 
-    task_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" in p]
-    other_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" not in p]
+    task_prompts = [p for p in llm.calls if "実行可能な作業タスクに分解してください" in p]
+    other_prompts = [p for p in llm.calls if "実行可能な作業タスクに分解してください" not in p]
     assert len(task_prompts) == 1  # 要件1件 → Task分解のLLM呼び出し1回
     assert "## 表記対応表" in task_prompts[0] and "\nPython\n" in task_prompts[0]
     assert all("表記対応表" not in p for p in other_prompts)
@@ -596,7 +596,7 @@ async def test_job_runs_task_generation_without_vocabulary_when_members_file_is_
     gen_resp = await client.post(f"/api/projects/{project_id}/generate", json={})
     final_status, _ = await _poll_until_terminal(client, gen_resp.json()["job_id"])
 
-    task_prompts = [p for p in llm.calls if "実行可能な開発タスクに分解してください" in p]
+    task_prompts = [p for p in llm.calls if "実行可能な作業タスクに分解してください" in p]
     assert len(task_prompts) == 1
     assert "表記対応表" not in task_prompts[0]
     assert final_status["status"] == "failed"

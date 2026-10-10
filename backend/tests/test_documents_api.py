@@ -48,6 +48,17 @@ async def test_parse_does_not_truncate_long_document(client, db_engine):
 
 
 @pytest.mark.asyncio
+async def test_parse_returns_400_for_corrupted_pdf(client, db_engine):
+    await _create_team(client)
+
+    files = {"file": ("broken.pdf", b"%PDF-1.4 not really a pdf", "application/pdf")}
+    resp = await client.post("/api/documents/parse", files=files)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "FILE_PARSE_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_parse_rejects_unsupported_file_type(client, db_engine):
     await _create_team(client)
 

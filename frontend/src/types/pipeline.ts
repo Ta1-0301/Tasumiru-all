@@ -290,6 +290,10 @@ export interface ValidationReport {
   skill_mismatches: SkillMismatch[];
   constraint_violations: ConstraintViolation[];
   workload_summaries: WorkloadSummary[];
+  /** CHECK 7〜9（古いバックエンドの結果には無いため任意） */
+  task_quality_issues?: { task_id: string; code: string; message: string }[];
+  assignment_score_anomalies?: { task_id: string; member_id: string; score: number; threshold: number; message: string }[];
+  unassigned_tasks?: { task_id: string; reason: string; message: string }[];
   generated_at: string | null;
 }
 
